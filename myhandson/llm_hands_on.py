@@ -179,6 +179,14 @@ def fit_small(model, x, y, steps=800, lr=0.01):
     model.eval()
 
 
+# 1層・1ヘッドのSelf-Attentionモデル
+class AttentionLM(nn.Module):
+    def __init__(self, vocab_size: int, d_model: int = 16):
+        super().__init__()
+        self.embedding = nn.Embedding(vocab_size, d_model) # トークンの埋め込み表現
+        # Query・Keyは位置同志を照合するための表現、Valueは実際に混ぜて渡す数値を作る。
+        # これらの行列が学習で更新されるパラメータで、入力ごとには変わらない
+
 # ── 実験 ──────────────────────────────────────────────────────
 
 def main():
@@ -228,6 +236,16 @@ def main():
     # for temperature in (0.5, 1.0, 2.0):
     #     print("temperature", temperature)
     #     show_next(bigram, tok, red_prompt, temperature)
+
+    print("\n========== Part 2 ==========\n")
+
+    # IDから次のスコアを直接引く代わりに、各tokenを16個の数値のベクトルで表す。この表も学習対象になる
+    embedding = nn.Embedding(tok.vocab_size, 16)
+    h = embedding(x) # [2, 9, 16]。2文章 x 9位置 x 16次元。xは訓練データだね
+
+    # 「答えは」の「は」までの8一を平均して1本のベクトルにまとめる。
+    # 単純平均ではどの位置も同じ割合になる。混ぜる割合を入力から計算するのがAttention
+    prefix_mean = h[:, :8].mean(dim=1) # [2, 16]
 
 
 if __name__ == "__main__":
