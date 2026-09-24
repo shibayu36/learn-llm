@@ -1,0 +1,93 @@
+{
+  "config": {
+    "d_model": 128,
+    "context_length": 128,
+    "batch_size": 16,
+    "steps": 1000,
+    "learning_rate": 0.0003,
+    "eval_every": 100,
+    "eval_batches": 8,
+    "train_chars": 200000,
+    "validation_chars": 20000,
+    "seed": 42,
+    "cpu_threads": 4,
+    "device": "cpu",
+    "run_name": "part1"
+  },
+  "python": "3.14.7",
+  "torch": "2.14.0",
+  "platform": "macOS-26.6-arm64-arm-64bit-Mach-O",
+  "device": "cpu",
+  "parameters": 239584,
+  "data_sha256": "86c4e6aa9db7c042ec79f339dcb96d42b0075e16b8fc2e86bf0ca57e2dc565ed",
+  "train_tokens": 200000,
+  "validation_tokens": 20000,
+  "processed_tokens": 2048000,
+  "training_and_evaluation_seconds": 7.586905750009464,
+  "history": [
+    {
+      "step": 0,
+      "train_loss": 4.691081523895264,
+      "validation_loss": 4.671592175960541
+    },
+    {
+      "step": 100,
+      "train_loss": 2.8028802275657654,
+      "validation_loss": 2.869769901037216
+    },
+    {
+      "step": 200,
+      "train_loss": 2.5945624709129333,
+      "validation_loss": 2.6843398809432983
+    },
+    {
+      "step": 300,
+      "train_loss": 2.52302223443985,
+      "validation_loss": 2.627941817045212
+    },
+    {
+      "step": 400,
+      "train_loss": 2.483764171600342,
+      "validation_loss": 2.600956827402115
+    },
+    {
+      "step": 500,
+      "train_loss": 2.454358011484146,
+      "validation_loss": 2.5734104812145233
+    },
+    {
+      "step": 600,
+      "train_loss": 2.41705185174942,
+      "validation_loss": 2.5512411296367645
+    },
+    {
+      "step": 700,
+      "train_loss": 2.381459206342697,
+      "validation_loss": 2.52748641371727
+    },
+    {
+      "step": 800,
+      "train_loss": 2.338525027036667,
+      "validation_loss": 2.489077538251877
+    },
+    {
+      "step": 900,
+      "train_loss": 2.2873772382736206,
+      "validation_loss": 2.4421937465667725
+    },
+    {
+      "step": 1000,
+      "train_loss": 2.235014170408249,
+      "validation_loss": 2.402248799800873
+    }
+  ],
+  "generation": {
+    "prompt": "ROMEO:\nWhat is",
+    "new_tokens": 120,
+    "seed": 100,
+    "temperature": 1.0,
+    "before": "ROMEO:\nWhat isssayVMU$z=xjyzj;cNn&-0A/)`kpA^q.Z(P}~!B;E;GP`tgiSGs@w$Sgt>kiIPWLpRz^u :?dJiToMiqzYw&TgTm|`SX='X6u.d'[Mf2>`L*.Lh}c>/ifWQz",
+    "after": "ROMEO:\nWhat is sayscenom!\nSam;cend matim and; ot hursechanct, Sas we, treir gapen ur:\nBuicoMiod whaghang th' tutdod fion a.\n\nFie if Fa",
+    "greedy_after": "ROMEO:\nWhat is the the the the the the the the the the the the the the the the the the the the the the the the the the the the the the"
+  }
+}

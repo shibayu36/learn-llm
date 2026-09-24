@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Tiny GPT — Part 1の操作デモ</title>
+<style>
+:root{--paper:#fff;--bg:#f5f5f6;--ink:#292b2e;--muted:#626b75;--line:#dce1e7;--nav:#132438;--blue:#315e92;--light:#edf3fa;--teal:#25766b;--orange:#b36436;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:28px}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.85 -apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif}a{color:var(--blue);text-underline-offset:4px}button,input,select{font:inherit}button,select{border:1px solid #bcc7d3;border-radius:7px;background:#fff;color:var(--ink);padding:7px 13px}button{cursor:pointer}button:hover{background:var(--light)}button:disabled{opacity:.45;cursor:default}button.primary{background:var(--blue);color:#fff;border-color:var(--blue)}:focus-visible{outline:3px solid #be8540;outline-offset:4px}input[type=checkbox]{width:18px;height:18px;accent-color:var(--blue)}input[type=range]{accent-color:var(--blue);width:100%}code,pre,.mono{font-family:var(--mono)}code{font-size:.92em}p{margin:10px 0 18px}h1,h2,h3{line-height:1.5;margin:0 0 16px}h1{font-size:34px;letter-spacing:.025em}h2{font-size:25px}h3{font-size:18px}small,.small{font-size:13px;color:var(--muted)}
+aside{position:fixed;inset:0 auto 0 0;width:235px;background:var(--nav);color:#fff;padding:35px 23px;display:flex;flex-direction:column}.brand{font-size:20px;font-weight:700;letter-spacing:.025em}.brand small{display:block;color:#aebdd0;margin-top:4px;font-weight:400}.nav-label{font-size:11px;color:#9badc3;letter-spacing:.12em;margin:38px 0 13px}nav a{display:block;color:#dfe7f1;text-decoration:none;padding:11px 9px;border-radius:6px;font-size:14px;margin:4px 0}nav a:hover,nav a[aria-current=true]{background:#29445f;color:#fff}.back{color:#bccbde;font-size:12px;margin-top:auto;overflow-wrap:anywhere}main{margin-left:235px;padding:52px 48px 60px;max-width:1370px}header{margin-bottom:43px;max-width:850px}.eyebrow{color:var(--blue);font-size:12px;letter-spacing:.1em;font-weight:700;margin-bottom:13px}.lead{font-size:17px;max-width:760px}.legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--muted)}.badge{display:inline-block;font-size:11px;font-weight:700;border:1px solid #c4d2e0;color:var(--blue);background:#f1f6fb;padding:3px 9px;border-radius:5px;white-space:nowrap}.badge.recorded{color:var(--teal);border-color:#b9d2cb;background:#eef7f4}
+section{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:29px;margin:0 0 32px;scroll-margin-top:28px}.section-top{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:8px}.number{font-family:var(--mono);font-size:12px;color:var(--muted);letter-spacing:.05em}.instruction{border-left:3px solid var(--blue);padding:7px 14px;background:#f4f7fb;font-size:14px;margin:20px 0 25px}.three{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.two{display:grid;grid-template-columns:1fr 1fr;gap:24px}.panel{background:#f7f9fb;border:1px solid var(--line);border-radius:8px;padding:17px;min-width:0}.panel h3{font-size:15px}.matrix{border-collapse:separate;border-spacing:5px;width:100%;font:14px var(--mono)}.matrix th{font-size:11px;font-weight:400;color:var(--muted);height:25px}.matrix td{height:48px;text-align:center;border-radius:5px;background:#e9eef5;min-width:45px}.matrix input{width:100%;max-width:95px;min-width:0;text-align:center;padding:8px 3px;border:1px solid #b6c4d4;border-radius:5px;background:#fff;font:16px var(--mono)}.controls{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:20px 0}.check{display:inline-flex;align-items:center;gap:9px;font-size:14px}.error{color:#a12c32;font-size:13px;min-height:22px}.formula{font:14px/1.9 var(--mono);padding:16px 19px;background:#edf2f7;border-radius:7px;margin:22px 0;overflow:auto}.explain{font-size:14px;color:#465362;margin-top:19px}.focus-result{font:16px/1.9 var(--mono);background:#eaf3f1;color:#185e55;padding:16px;border-radius:7px;overflow-wrap:anywhere}.source{border-top:1px solid var(--line);padding-top:15px;margin-top:23px;font-size:12px;color:var(--muted)}.token{display:inline-block;border:1px solid #c8d5e3;border-radius:5px;background:#edf3fa;min-width:35px;text-align:center;margin:0 3px;padding:2px 6px;font-family:var(--mono)}.mask-note{border:1px solid #c4d2e0;background:#f4f7fb;padding:16px;border-radius:8px;margin:21px 0}.mask-note h3{font-size:16px}.soft{color:var(--muted)}details{margin:18px 0}summary{cursor:pointer;font-size:13px;color:var(--blue)}pre.code{background:#1e1e1e;color:#d4d4d4;border-radius:8px;padding:19px;overflow:auto;font-size:13px;line-height:1.75}.keyword{color:#c586c0}.variable{color:#9cdcfe}.function{color:#dcdcaa}.string{color:#ce9178}.literal{color:#b5cea8}.comment{color:#6a9955}
+.temp-control{max-width:470px;margin:24px 0}.temp-label{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}.temp-label output{font:26px var(--mono);color:var(--blue)}.bar-row{display:grid;grid-template-columns:65px 1fr 70px;align-items:center;gap:12px;margin:15px 0;font-size:14px}.track{height:25px;border-radius:4px;background:#e8edf3;overflow:hidden}.fill{height:100%;background:#527fae;transition:width .15s}.bar-value{text-align:right;font:14px var(--mono)}.choice{background:#edf3fa;padding:19px;border-radius:8px;min-height:85px}.choice strong{font-size:22px;color:var(--blue);display:block}.history{min-height:51px;font-family:var(--mono);overflow-wrap:anywhere}.prompt{background:#142439;color:#e9edf3;padding:22px;border-radius:9px;font:20px/1.8 var(--mono);white-space:pre-wrap;word-break:break-all;min-height:135px}.prompt mark{background:#c8dfef;color:#153a58;padding:1px 2px}.step-label{font:14px var(--mono);color:var(--blue)}.record-options{display:flex;gap:16px;align-items:center;flex-wrap:wrap}.record-options label{font-size:14px}.record-status{font-size:14px;color:#486477;min-height:30px}.record-probs .bar-row{margin:9px 0}.record-probs .track{height:17px}.picked .fill{background:var(--teal)}.picked .bar-name{color:var(--teal);font-weight:700}.token-display{white-space:pre-wrap}.anchor{scroll-margin-top:30px}.muted-box{background:#f6f7f9;padding:14px 17px;border-radius:7px;font-size:13px}footer{font-size:12px;color:var(--muted);line-height:1.8}.noscript{padding:24px;background:#fff1df;border:1px solid #deb882;margin-bottom:25px}
+@media(max-width:1050px){aside{width:205px;padding:28px 16px}main{margin-left:205px;padding:36px 27px}.three{gap:10px}.panel{padding:11px}.matrix{border-spacing:3px;font-size:12px}}
+@media(max-width:780px){html{scroll-padding-top:115px}aside{position:sticky;top:0;width:auto;padding:12px 18px;z-index:10;display:block}.brand{font-size:16px}.brand small,.nav-label,.back{display:none}nav{display:flex;gap:4px;overflow:auto;margin-top:5px}nav a{font-size:12px;white-space:nowrap;padding:5px 8px;margin:0}main{margin:0;padding:29px 19px}h1{font-size:27px}h2{font-size:22px}header{margin-bottom:27px}section{padding:22px 18px;scroll-margin-top:115px}.anchor{scroll-margin-top:120px}.two{grid-template-columns:1fr}.section-top{align-items:flex-start}.three{gap:8px}.matrix input{font-size:14px}.matrix th{font-size:10px}.matrix td{min-width:28px;height:39px}.matrix{font-size:12px}.panel{padding:8px}.panel h3{font-size:13px}}
+@media(max-width:480px){.three{grid-template-columns:1fr}.matrix{max-width:275px;margin:auto}.panel h3{text-align:center}.matrix input{font-size:17px}.matrix td{height:44px}.bar-row{grid-template-columns:48px 1fr 62px;gap:8px}.formula{font-size:12px}.prompt{font-size:17px}.controls{gap:11px}.section-top{gap:10px}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important}}
+@media print{aside,.controls,button,details{display:none}main{margin:0;padding:10px}section{break-inside:avoid;border-color:#aaa}body{background:white}.prompt{color:#111;background:#eee}}
+
+.vector-plane{width:100%;max-width:440px;margin:auto}.vector-plane svg{display:block;width:100%;height:auto}.table-scroll{overflow:auto}.chain-table{border-collapse:collapse;width:100%;font:14px/1.7 var(--mono);margin:16px 0}.chain-table th,.chain-table td{padding:10px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}.chain-table th:first-child{text-align:left}.stacked-bar{display:flex;min-height:40px;overflow:hidden;border-radius:6px;margin:20px 0;color:white;text-align:center;font-size:13px}.stacked-bar span{min-width:0;overflow:hidden;padding:5px 0}.sum-term{padding:14px 12px;margin:12px 0;background:#f0f2f5;color:#657182;border-radius:6px;font-family:var(--mono);font-size:14px}.sum-term.included{color:#205084;background:#eaf2fc}.formula{white-space:pre-wrap}.heatmap td{border:2px solid white;border-radius:5px}.selected-row th{color:var(--blue);font-weight:800}.selected-row td{outline:2px solid #9eb2cd;outline-offset:-3px}.bar-row{grid-template-columns:minmax(80px,125px) 1fr 70px}.bar-name{overflow-wrap:anywhere;line-height:1.4}.record-probs .bar-row{grid-template-columns:minmax(80px,150px) 1fr 75px}aside{overflow:auto}#qkv .three{grid-template-columns:1fr 1fr 1fr}@media(max-width:780px){.bar-row,.record-probs .bar-row{grid-template-columns:100px 1fr 66px}#qkv .three{grid-template-columns:1fr}.chain-table{font-size:12px}.chain-table td,.chain-table th{padding:8px 5px}}
+</style>
+</head>
+<body>
+<aside>
+ <div class="brand">Tiny GPT<small>Part 1 · 操作デモ</small></div>
+ <div class="nav-label">変えて、確かめる</div>
+ <nav aria-label="デモの目次">
+  <a href="#dot-product">内積から参照の割合へ</a>
+  <a href="#weighted-sum">Valueを足し合わせる</a>
+  <a href="#qkv">WからQ・K・Vを作る</a>
+  <a href="#causal-mask">未来の正解を隠す</a>
+  <a href="#temperature">greedyとsampling</a>
+  <a href="#generation">生成を1tokenずつ見る</a>
+ </nav>
+ <a class="back" href="../part1.md">← Part 1の本文へ</a>
+</aside>
+<main>
+<header>
+ <div class="eyebrow">PYTORCH HANDS-ON · COMPANION</div>
+ <h1>数値を変えて、<br>GPTの計算を確かめる。</h1>
+ <p class="lead">内積が参照の割合になり、Valueの重み付き和へ変わる流れを追います。最後に、学習前後の日本語GPTが次tokenを選ぶ過程を見てみましょう。</p>
+ <div class="legend"><span><span class="badge">説明用の数値</span> 小さな行列で計算</span><span><span class="badge recorded">実測を再生</span> PyTorchでの生成を記録</span></div>
+</header>
+<noscript><div class="noscript">操作デモにはJavaScriptを有効にしてください。説明と数式はこのまま読めます。</div></noscript>
+
+<section id="dot-product" aria-labelledby="dot-title">
+ <div class="section-top"><span class="number">本文 1.5 / 内積 → softmax</span><span class="badge">説明用の数値</span></div>
+ <h2 id="dot-title">矢印の向きと長さが、参照する割合を変える。</h2>
+ <p>オレンジが参照する側のQuery、青が3つの参照先のKeyです。Queryの向きを変えると、それぞれのKeyとの内積が変わります。同じ向きでも、長さを変えると内積は変わります。</p>
+ <div class="two">
+  <div class="panel">
+   <div id="dot-plane" class="vector-plane"></div>
+   <label for="dot-angle">Queryの角度 <output id="dot-angle-value"></output></label><input id="dot-angle" type="range" min="-180" max="180" step="5" value="20">
+   <label for="dot-length">Queryの長さ <output id="dot-length-value"></output></label><input id="dot-length" type="range" min="0" max="2.5" step="0.1" value="1.5">
+  </div>
+  <div>
+   <div id="dot-formula" class="formula"></div>
+   <div class="controls"><button id="softmax-next" class="primary">次へ：指数関数に通す</button><button id="softmax-reset">内積へ戻る</button></div>
+   <p id="softmax-stage" aria-live="polite"></p>
+   <div class="table-scroll"><table class="chain-table"><thead><tr><th>参照先</th><th>q・k / √2</th><th>exp</th><th>割合</th></tr></thead><tbody id="dot-table"></tbody></table></div>
+   <div id="softmax-stack" class="stacked-bar"></div>
+   <p class="small">指数関数では数値を安定させるため、最大のscoreを引いています。softmaxの結果は変わりません。</p>
+  </div>
+ </div>
+ <div class="instruction">まず「次へ」を2回押して、負のscoreも正の値になり、合計1の割合になる過程を見ましょう。次にQueryの長さを0へ下げると、3つとも同じ割合になります。</div>
+ <p class="source">2次元の数値は説明のために置いたものです。座標軸に「名詞らしさ」などの意味は割り当てていません。内積が大きいことは、token同士の意味が近いことを直接保証しません。</p>
+</section>
+
+<section id="weighted-sum" aria-labelledby="sum-title">
+ <div class="section-top"><span class="number">本文 1.5 / 重み付き和</span><span class="badge">説明用の数値</span></div>
+ <h2 id="sum-title">Valueを重みの分だけ縮めて、矢印をつなぐ。</h2>
+ <p>上のデモで決めた割合を使い、3つのValueを集めます。1つずつweightを掛け、前の矢印の先から次の矢印を足してみましょう。すべてを足したベクトルがAttentionの出力です。</p>
+ <div class="controls"><button id="sum-next" class="primary">1つ足す</button><button id="sum-play">順に再生する</button><button id="sum-reset">最初から</button><span id="sum-step"></span></div>
+ <div class="two"><div class="panel"><div id="sum-plane" class="vector-plane"></div></div><div><div id="sum-terms"></div><div id="sum-total" class="focus-result" aria-live="polite"></div><p class="small">薄い矢印は元のValue、青はweightを掛けて足した分、オレンジは原点から見た合計です。Q・KとValueには別の数値を使っています。</p></div></div>
+ <div class="formula">output = weight₀ × v₀ + weight₁ × v₁ + weight₂ × v₂</div>
+ <p class="source">上のQueryを変えると割合も変わり、足し算は最初へ戻ります。この出力はValueの重み付き和で、本文の出力変換やResidual Connectionを通す前の値です。</p>
+</section>
+
+<section id="qkv" aria-labelledby="qkv-title">
+ <div class="section-top"><span class="number">本文 1.5 / XからQ・K・Vを作る</span><span class="badge">説明用の数値</span></div>
+ <h2 id="qkv-title">同じ入力でも、Wを変えると集め方が変わる。</h2>
+ <p>Q・K・Vは入力から計算するベクトルです。その変換に使うWq・Wk・Wvが、学習するパラメータです。このデモでは入力Xを固定し、Wだけを変えて違いを見ます。</p>
+ <div class="formula">X = [[2, 0], [0, 2], [1, 1]]<br>Q = XWq　K = XWk　V = XWv<br>shape: X・Q・K・Vは [3, 2]、各Wは [2, 2]</div>
+ <div class="controls"><button id="w-identity">Wq・Wkを単位行列へ</button><button id="w-query-zero">Wqをすべて0へ</button></div>
+ <div class="three" id="w-inputs"></div>
+ <p id="w-error" class="error" role="status"></p>
+ <div class="controls"><label for="w-query">参照する位置</label><select id="w-query"><option value="0">位置0</option><option value="1">位置1</option><option value="2" selected>位置2</option></select><label for="w-value-preset">Wvだけを変える</label><select id="w-value-preset"><option value="identity">単位行列</option><option value="double">2倍にする</option><option value="swap">成分を入れ替える</option></select></div>
+ <div id="w-query-formula" class="formula"></div>
+ <div class="two"><div class="panel"><h3>QとK：どの割合で集めるか</h3><div id="w-plane" class="vector-plane"></div><div class="table-scroll"><table class="chain-table"><thead><tr><th>位置</th><th>Key</th><th>score</th><th>weight</th></tr></thead><tbody id="w-chain"></tbody></table></div></div><div class="panel"><h3>V：何を集めるか</h3><div id="w-value-terms"></div><div id="w-output" class="focus-result" aria-live="polite"></div><p class="small">Wvだけを変えると左のweightは同じまま、右のValueと出力が変わります。</p></div></div>
+ <div class="instruction">Wqを0にするとQも0になり、参照先の割合はすべて1/3になります。そのままWvを2倍にすると、割合を保ったまま出力だけが2倍になります。</div>
+ <p>入力ベクトル同士の内積だけでscoreを作ると、score(i, j)とscore(j, i)は同じです。別のWq・Wkを使うと、この対称性に縛られないscoreを作れます。ただしsoftmax後のweightは行ごとに正規化するため、元のscoreが対称でも対称とは限りません。</p>
+ <p class="source">ここではバイアスとCausal Maskを省略しています。実際の学習ではWだけでなくEmbeddingも更新します。この操作はパラメータの役割を見るもので、学習結果の再現ではありません。</p>
+</section>
+<section id="causal-mask" aria-labelledby="causal-title">
+ <div class="section-top"><span class="number">本文 1.6 / Causal Mask</span><span class="badge">説明用の数値</span></div>
+ <h2 id="causal-title">「次に当てるtoken」が、入力の先に見えている。</h2>
+ <p>入力を「日本の / 首都 / は」とします。位置1で次の「は」を予測するとき、位置2の「は」を参照できたら答えが見えてしまいます。生成時には使えない、この経路をMaskで閉じます。</p>
+ <div class="controls"><label class="check"><input id="causal" type="checkbox">Causal Maskで未来を隠す</label><label for="mask-query">予測する位置</label><select id="mask-query"><option value="0">位置0：日本の → 首都を予測</option><option value="1" selected>位置1：首都 → はを予測</option><option value="2">位置2：は → 次のtokenを予測</option></select></div>
+ <div class="two"><div class="panel"><h3>Attention weight：行から列を見る</h3><div id="mask-map"></div></div><div><h3 id="mask-query-title"></h3><div id="mask-bars"></div><div id="mask-explanation" class="instruction" aria-live="polite"></div></div></div>
+ <p class="source">チェックすると未来のscoreを−∞にし、softmaxを計算し直します。未来の重みが0になり、見える位置だけで合計1になります。Maskは現在の位置も参照できます。</p>
+ <details><summary>対応するPythonの計算を見る</summary><pre class="code"><code><span class="variable">scores</span> = scores.masked_fill(future, <span class="function">float</span>(<span class="string">"-inf"</span>))
+<span class="variable">weights</span> = torch.softmax(scores, dim=-<span class="literal">1</span>)</code></pre></details>
+</section>
+
+<section id="temperature" aria-labelledby="temperature-title">
+ <div class="section-top"><span class="number">本文 1.12</span><span class="badge">説明用の数値</span></div>
+ <h2 id="temperature-title">候補の順位と、選ばれる確率は別。</h2>
+ <p>「日本の首都は」の次の候補を「東京」「大阪」「京都」とします。説明用のlogitsを <code>[2, 1, 0]</code> に固定します。temperatureを動かしても、元のlogitsは変わりません。</p>
+ <div class="two">
+  <div>
+   <div class="temp-control"><label class="temp-label" for="temperature-range">temperature <output id="temperature-value">1.0</output></label><input id="temperature-range" type="range" min="0.2" max="2.5" step="0.1" value="1"></div>
+   <div id="temperature-bars"></div>
+   <div class="formula">確率 = softmax(logits / temperature)</div>
+  </div>
+  <div class="panel">
+   <h3>同じ分布から1token選ぶ</h3>
+   <div class="controls"><button id="choose-greedy">greedyで選ぶ</button><button id="choose-sampling" class="primary">samplingで選ぶ</button></div>
+   <div class="choice" aria-live="polite"><span class="small" id="choice-method">ボタンを押して選択</span><strong id="temperature-choice">—</strong></div>
+   <p class="small">選んだ履歴（ここでは分布を固定したまま抽選します）</p><div id="choice-history" class="history"></div>
+   <button id="reset-choices">履歴を消す</button>
+  </div>
+ </div>
+ <div class="instruction">temperatureを0.2から2.5へ動かしてください。確率の差は変わりますが、一番高い候補は変わりません。greedyとsamplingで、それぞれ何度か選んでみましょう。</div>
+ <div class="source">このデモの候補は <span class="token">東京</span><span class="token">大阪</span><span class="token">京都</span> の3つだけです。実際のGPTは語彙全体のlogitsを返します。temperatureはモデルの重みを更新しません。</div>
+</section>
+
+<section id="generation" aria-labelledby="generation-title">
+ <div class="section-top"><span class="number">導入・本文 1.12・1.13</span><span class="badge recorded">実測を再生</span></div>
+ <h2 id="generation-title">選んだ1tokenが、次の入力になる。</h2>
+ <p>参照コードのTiny GPTで記録した生成を、1tokenずつ再生します。学習前は意味のつながらない断片が出ても、予測と選択の処理は動いています。</p>
+ <div class="record-options"><label for="record-stage">使うモデル</label><select id="record-stage"><option value="before">学習前</option><option value="after">10,000回の学習後</option></select><span id="record-step" class="step-label"></span></div>
+ <div class="controls"><button id="next-token" class="primary">1token選んで追加する</button><button id="restart-generation">最初から見る</button></div>
+ <div class="two">
+  <div><h3>モデルへの入力</h3><div id="record-prompt" class="prompt" aria-live="polite"></div><p id="record-status" class="record-status" aria-live="polite"></p><p class="small">青い部分が直前のdecodeで変わった箇所です。次の予測には、選んだtokenのIDも含まれます。byteの断片がそろうと文字の表示が確定します。</p></div>
+  <div><h3 id="distribution-title">次のtokenの確率</h3><div id="record-probabilities" class="record-probs"></div><p class="small">確率が高い5候補と、記録で選ばれた候補を表示します。1tokenだけでは文字にならないbyteの断片は「�」とIDで示します。棒の長さは確率に比例し、表示内の最大値に合わせて幅を調整しています。</p></div>
+ </div>
+ <div class="muted-box">samplingで選ぶtokenは、必ずしも確率が最大のtokenではありません。最後の位置の予測から1token選び、入力へ追加してから次の分布を計算します。</div>
+ <div class="source">Python 3.14.7 / PyTorch 2.14.0 / MPS / 2,320,256 parameters / temperature 0.8 / sampling seed 100。ブラウザ上でGPTを動かしているのではなく、各入力に対する確率と選択結果の記録を再生しています。</div>
+</section>
+<footer>Part 1の本文と参照コード：<a href="../part1.md">本文（Markdown）</a> · <a href="../../sample/README.md">参照コードの案内</a><br>すべての計算・表示データをこのHTMLに含めています。外部への通信は行いません。</footer>
+</main>
+<script>
+"use strict";
+const trace = {"prompt": "プログラミングを学ぶには、", "before": [{"candidates": [{"id": 2163, "label": "ーナ", "probability": 0.002527834614738822}, {"id": 1685, "label": "給", "probability": 0.0014491730835288763}, {"id": 4167, "label": "時間を", "probability": 0.0012025211472064257}, {"id": 1830, "label": "感じ", "probability": 0.0011942575220018625}, {"id": 5076, "label": "完了", "probability": 0.0011570077622309327}, {"id": 7438, "label": "ユーザーは", "probability": 0.00013209898315835744}], "chosen": 7438, "input": "プログラミングを学ぶには、", "output": "プログラミングを学ぶには、ユーザーは"}, {"candidates": [{"id": 4636, "label": "こういった", "probability": 0.0015258139465004206}, {"id": 1996, "label": "予定", "probability": 0.0014736077282577753}, {"id": 3753, "label": "といい", "probability": 0.0014507574960589409}, {"id": 3777, "label": "方を", "probability": 0.0010617489460855722}, {"id": 5553, "label": "高く", "probability": 0.001020805910229683}, {"id": 744, "label": "された", "probability": 0.00041698789573274553}], "chosen": 744, "input": "プログラミングを学ぶには、ユーザーは", "output": "プログラミングを学ぶには、ユーザーはされた"}, {"candidates": [{"id": 6381, "label": "度が", "probability": 0.001641296548768878}, {"id": 2563, "label": "銀行", "probability": 0.0012605111114680767}, {"id": 7330, "label": "交渉", "probability": 0.0010519984643906355}, {"id": 6402, "label": "の病気", "probability": 0.0009904068429023027}, {"id": 3857, "label": "働く", "probability": 0.0009401222341693938}, {"id": 4882, "label": "マイクロ", "probability": 0.0001705408503767103}], "chosen": 4882, "input": "プログラミングを学ぶには、ユーザーはされた", "output": "プログラミングを学ぶには、ユーザーはされたマイクロ"}, {"candidates": [{"id": 6009, "label": "ージャ", "probability": 0.001365005155093968}, {"id": 5222, "label": "に住", "probability": 0.0010371801909059286}, {"id": 859, "label": "価", "probability": 0.0009368655155412853}, {"id": 833, "label": "主", "probability": 0.0009066095808520913}, {"id": 86, "label": "v", "probability": 0.0008952298085205257}, {"id": 1181, "label": "買", "probability": 5.2496336138574407e-05}], "chosen": 1181, "input": "プログラミングを学ぶには、ユーザーはされたマイクロ", "output": "プログラミングを学ぶには、ユーザーはされたマイクロ買"}, {"candidates": [{"id": 731, "label": "できます", "probability": 0.0011901144171133637}, {"id": 6021, "label": "徹底", "probability": 0.0011746264062821865}, {"id": 458, "label": "�", "probability": 0.0010529165156185627}, {"id": 6412, "label": "ようになって", "probability": 0.0010492634028196335}, {"id": 50, "label": "R", "probability": 0.001012233435176313}, {"id": 3790, "label": "自体", "probability": 0.00023877396597526968}], "chosen": 3790, "input": "プログラミングを学ぶには、ユーザーはされたマイクロ買", "output": "プログラミングを学ぶには、ユーザーはされたマイクロ買自体"}, {"candidates": [{"id": 3770, "label": "を書", "probability": 0.0016069799894466996}, {"id": 1766, "label": "よね", "probability": 0.001042523537762463}, {"id": 2728, "label": "トップ", "probability": 0.0009985323995351791}, {"id": 5543, "label": "警察", "probability": 0.0009558782330714166}, {"id": 7006, "label": "ンター", "probability": 0.0009138835011981428}, {"id": 2567, "label": "....", "probability": 8.759054617257789e-05}], "chosen": 2567, "input": "プログラミングを学ぶには、ユーザーはされたマイクロ買自体", "output": "プログラミングを学ぶには、ユーザーはされたマイクロ買自体...."}, {"candidates": [{"id": 1482, "label": "なん", "probability": 0.0013657372910529375}, {"id": 173, "label": "�", "probability": 0.0011815433390438557}, {"id": 1808, "label": "ウン", "probability": 0.0011383059900254011}, {"id": 2821, "label": "似", "probability": 0.0010372137185186148}, {"id": 3833, "label": "過ぎ", "probability": 0.000996848801150918}, {"id": 7130, "label": "面積", "probability": 5.567347398027778e-05}], "chosen": 7130, "input": "プログラミングを学ぶには、ユーザーはされたマイクロ買自体....", "output": "プログラミングを学ぶには、ユーザーはされたマイクロ買自体....面積"}, {"candidates": [{"id": 2514, "label": "13", "probability": 0.0015613316791132092}, {"id": 5173, "label": "を減", "probability": 0.0012507317587733269}, {"id": 6954, "label": "ica", "probability": 0.0010625532595440745}, {"id": 1372, "label": "でしょうか", "probability": 0.0010607442818582058}, {"id": 6143, "label": "ーボード", "probability": 0.0010512020671740174}, {"id": 2744, "label": "どのような", "probability": 8.898176747607067e-05}], "chosen": 2744, "input": "プログラミングを学ぶには、ユーザーはされたマイクロ買自体....面積", "output": "プログラミングを学ぶには、ユーザーはされたマイクロ買自体....面積どのような"}, {"candidates": [{"id": 3136, "label": "チュ", "probability": 0.0012909953948110342}, {"id": 8074, "label": "タグ", "probability": 0.0011337751056998968}, {"id": 778, "label": "�", "probability": 0.0011291182599961758}, {"id": 4543, "label": "んでいます", "probability": 0.001097207423299551}, {"id": 5335, "label": "NA", "probability": 0.0010373246623203158}, {"id": 8016, "label": "通し", "probability": 0.00011737939348677173}], "chosen": 8016, "input": "プログラミングを学ぶには、ユーザーはされたマイクロ買自体....面積どのような", "output": "プログラミングを学ぶには、ユーザーはされたマイクロ買自体....面積どのような通し"}, {"candidates": [{"id": 333, "label": "の�", "probability": 0.0012029905337840319}, {"id": 6399, "label": "コミュニティ", "probability": 0.0010322649031877518}, {"id": 1692, "label": "トラ", "probability": 0.0010062005603685975}, {"id": 7306, "label": "に当", "probability": 0.0009105561184696853}, {"id": 2358, "label": "�", "probability": 0.0008936661179177463}, {"id": 805, "label": "を行", "probability": 3.3416596124880016e-05}], "chosen": 805, "input": "プログラミングを学ぶには、ユーザーはされたマイクロ買自体....面積どのような通し", "output": "プログラミングを学ぶには、ユーザーはされたマイクロ買自体....面積どのような通しを行"}, {"candidates": [{"id": 1188, "label": "大学", "probability": 0.0012649621348828077}, {"id": 1470, "label": "�", "probability": 0.0011941039701923728}, {"id": 7466, "label": "するのか", "probability": 0.0008986576576717198}, {"id": 3919, "label": "アウト", "probability": 0.000881483661942184}, {"id": 2965, "label": "ハイ", "probability": 0.0008610215736553073}, {"id": 4707, "label": "プラス", "probability": 2.1205130906309932e-05}], "chosen": 4707, "input": "プログラミングを学ぶには、ユーザーはされたマイクロ買自体....面積どのような通しを行", "output": "プログラミングを学ぶには、ユーザーはされたマイクロ買自体....面積どのような通しを行プラス"}, {"candidates": [{"id": 1913, "label": "顔", "probability": 0.002321307547390461}, {"id": 5486, "label": "紫", "probability": 0.0013573121977970004}, {"id": 3851, "label": "いくつか", "probability": 0.0010013605933636427}, {"id": 2347, "label": "の�", "probability": 0.000979817588813603}, {"id": 3307, "label": "を考え", "probability": 0.0009634600137360394}, {"id": 4800, "label": "ブック", "probability": 0.00029955373611301184}], "chosen": 4800, "input": "プログラミングを学ぶには、ユーザーはされたマイクロ買自体....面積どのような通しを行プラス", "output": "プログラミングを学ぶには、ユーザーはされたマイクロ買自体....面積どのような通しを行プラスブック"}], "after": [{"candidates": [{"id": 542, "label": "その", "probability": 0.03268318250775337}, {"id": 199, "label": "\n", "probability": 0.029123034328222275}, {"id": 588, "label": "この", "probability": 0.013241720385849476}, {"id": 575, "label": "また", "probability": 0.010615803301334381}, {"id": 336, "label": "お", "probability": 0.007960432209074497}, {"id": 7438, "label": "ユーザーは", "probability": 0.00018833573267329484}], "chosen": 7438, "input": "プログラミングを学ぶには、", "output": "プログラミングを学ぶには、ユーザーは"}, {"candidates": [{"id": 262, "label": "、", "probability": 0.2868741750717163}, {"id": 588, "label": "この", "probability": 0.01028939988464117}, {"id": 336, "label": "お", "probability": 0.010041714645922184}, {"id": 317, "label": "リ", "probability": 0.009460330940783024}, {"id": 340, "label": "「", "probability": 0.00890046264976263}, {"id": 6558, "label": "増え", "probability": 0.0001661666319705546}], "chosen": 6558, "input": "プログラミングを学ぶには、ユーザーは", "output": "プログラミングを学ぶには、ユーザーは増え"}, {"candidates": [{"id": 2096, "label": "ていく", "probability": 0.6075777411460876}, {"id": 262, "label": "、", "probability": 0.08592092245817184}, {"id": 7079, "label": "ていきます", "probability": 0.03948713466525078}, {"id": 295, "label": "てい", "probability": 0.02309691719710827}, {"id": 5226, "label": "ていて", "probability": 0.021874643862247467}], "chosen": 7079, "input": "プログラミングを学ぶには、ユーザーは増え", "output": "プログラミングを学ぶには、ユーザーは増えていきます"}, {"candidates": [{"id": 267, "label": "。", "probability": 0.9351688027381897}, {"id": 439, "label": "ので", "probability": 0.025219066068530083}, {"id": 269, "label": "し", "probability": 0.008346892893314362}, {"id": 274, "label": "が", "probability": 0.006786408834159374}, {"id": 725, "label": "ね", "probability": 0.005212712567299604}], "chosen": 267, "input": "プログラミングを学ぶには、ユーザーは増えていきます", "output": "プログラミングを学ぶには、ユーザーは増えていきます。"}, {"candidates": [{"id": 199, "label": "\n", "probability": 0.813826858997345}, {"id": 0, "label": "<|endoftext|>", "probability": 0.059599388390779495}, {"id": 575, "label": "また", "probability": 0.023565687239170074}, {"id": 221, "label": " ", "probability": 0.008921992033720016}, {"id": 997, "label": "しかし", "probability": 0.008904999122023582}], "chosen": 199, "input": "プログラミングを学ぶには、ユーザーは増えていきます。", "output": "プログラミングを学ぶには、ユーザーは増えていきます。\n"}, {"candidates": [{"id": 575, "label": "また", "probability": 0.09086024016141891}, {"id": 588, "label": "この", "probability": 0.028458371758461}, {"id": 340, "label": "「", "probability": 0.026219284161925316}, {"id": 997, "label": "しかし", "probability": 0.024360546842217445}, {"id": 13, "label": "-", "probability": 0.012126031331717968}, {"id": 199, "label": "\n", "probability": 0.008395764976739883}], "chosen": 199, "input": "プログラミングを学ぶには、ユーザーは増えていきます。\n", "output": "プログラミングを学ぶには、ユーザーは増えていきます。\n\n"}, {"candidates": [{"id": 575, "label": "また", "probability": 0.03600870817899704}, {"id": 588, "label": "この", "probability": 0.024062154814600945}, {"id": 997, "label": "しかし", "probability": 0.023789888247847557}, {"id": 340, "label": "「", "probability": 0.022848432883620262}, {"id": 285, "label": "こ", "probability": 0.019715815782546997}, {"id": 1886, "label": "そのため", "probability": 0.004806823562830687}], "chosen": 1886, "input": "プログラミングを学ぶには、ユーザーは増えていきます。\n\n", "output": "プログラミングを学ぶには、ユーザーは増えていきます。\n\nそのため"}, {"candidates": [{"id": 262, "label": "、", "probability": 0.9475170373916626}, {"id": 199, "label": "\n", "probability": 0.004600942600518465}, {"id": 275, "label": "は", "probability": 0.0016597831854596734}, {"id": 280, "label": "も", "probability": 0.0015412329230457544}, {"id": 514, "label": "でも", "probability": 0.0013136923080310225}], "chosen": 262, "input": "プログラミングを学ぶには、ユーザーは増えていきます。\n\nそのため", "output": "プログラミングを学ぶには、ユーザーは増えていきます。\n\nそのため、"}, {"candidates": [{"id": 199, "label": "\n", "probability": 0.18116973340511322}, {"id": 336, "label": "お", "probability": 0.019037483260035515}, {"id": 542, "label": "その", "probability": 0.017778052017092705}, {"id": 221, "label": " ", "probability": 0.012032024562358856}, {"id": 326, "label": "そ", "probability": 0.012024098075926304}, {"id": 575, "label": "また", "probability": 0.004510514438152313}], "chosen": 575, "input": "プログラミングを学ぶには、ユーザーは増えていきます。\n\nそのため、", "output": "プログラミングを学ぶには、ユーザーは増えていきます。\n\nそのため、また"}, {"candidates": [{"id": 262, "label": "、", "probability": 0.8246338963508606}, {"id": 340, "label": "「", "probability": 0.003979590255767107}, {"id": 17, "label": "1", "probability": 0.0036685236264020205}, {"id": 199, "label": "\n", "probability": 0.0026327527593821287}, {"id": 815, "label": "、「", "probability": 0.002432911191135645}], "chosen": 340, "input": "プログラミングを学ぶには、ユーザーは増えていきます。\n\nそのため、また", "output": "プログラミングを学ぶには、ユーザーは増えていきます。\n\nそのため、また「"}, {"candidates": [{"id": 336, "label": "お", "probability": 0.01828750967979431}, {"id": 769, "label": "自分", "probability": 0.012313922867178917}, {"id": 199, "label": "\n", "probability": 0.01094279158860445}, {"id": 588, "label": "この", "probability": 0.010630455799400806}, {"id": 285, "label": "こ", "probability": 0.010287965647876263}, {"id": 4707, "label": "プラス", "probability": 8.960777631727979e-05}], "chosen": 4707, "input": "プログラミングを学ぶには、ユーザーは増えていきます。\n\nそのため、また「", "output": "プログラミングを学ぶには、ユーザーは増えていきます。\n\nそのため、また「プラス"}, {"candidates": [{"id": 341, "label": "」", "probability": 0.5726660490036011}, {"id": 7719, "label": "チック", "probability": 0.2521020472049713}, {"id": 264, "label": "に", "probability": 0.01390419714152813}, {"id": 346, "label": "・", "probability": 0.008173571899533272}, {"id": 275, "label": "は", "probability": 0.007738464046269655}], "chosen": 341, "input": "プログラミングを学ぶには、ユーザーは増えていきます。\n\nそのため、また「プラス", "output": "プログラミングを学ぶには、ユーザーは増えていきます。\n\nそのため、また「プラス」"}]};
+const state = {step:0, stage:"before", choices:[]};
+const $ = id => document.getElementById(id);
+function softmax(values) {
+ const largest = Math.max(...values);
+ const exponentials = values.map(value => Math.exp(value-largest));
+ const total = exponentials.reduce((sum,value) => sum+value,0);
+ return exponentials.map(value => value/total);
+}
+function barRow(name, probability, maximum=1, picked=false) {
+ const row=document.createElement('div'); row.className='bar-row'+(picked?' picked':'');
+ const label=document.createElement('span'); label.className='bar-name'; label.textContent=name;
+ const track=document.createElement('div'); track.className='track'; track.setAttribute('aria-hidden','true');
+ const fill=document.createElement('div'); fill.className='fill'; fill.style.width=(100*probability/maximum)+'%'; track.append(fill);
+ const value=document.createElement('span'); value.className='bar-value'; value.textContent=(probability*100).toFixed(probability<0.001?3:1)+'%';
+ row.append(label,track,value); return row;
+}
+function temperatureProbabilities() {
+ const temperature=Number($('temperature-range').value);
+ return softmax([2/temperature,1/temperature,0]);
+}
+function updateTemperature() {
+ $('temperature-value').textContent=Number($('temperature-range').value).toFixed(1);
+ $('temperature-bars').innerHTML='';
+ temperatureProbabilities().forEach((p,i) => $('temperature-bars').append(barRow(['東京','大阪','京都'][i],p)));
+}
+function choose(method) {
+ const probabilities=temperatureProbabilities(); let selected=0;
+ if(method==='sampling') {
+  const draw=Math.random(); let total=0;
+  for(let i=0;i<probabilities.length;i++) { total+=probabilities[i]; if(draw<total) { selected=i; break; } }
+ }
+ const name=['東京','大阪','京都'][selected];
+ $('choice-method').textContent=method+' / temperature '+Number($('temperature-range').value).toFixed(1);
+ $('temperature-choice').textContent=name;
+ state.choices.push(name); state.choices=state.choices.slice(-20);
+ $('choice-history').textContent=state.choices.join(' · ');
+}
+function tokenName(candidate) {
+ const value=candidate.label;
+ if(value==='\n') return '改行 ↵';
+ if(value===' ') return '空白';
+ return value.replaceAll('\n','↵')+(value.includes('�')?'（ID '+candidate.id+'）':'');
+}
+function renderGeneration() {
+ const records=trace[state.stage],completed=state.step===records.length;
+ const previous=state.step?records[state.step-1]:null;
+ const output=previous?previous.output:trace.prompt;
+ const input=previous?previous.input:trace.prompt;
+ const oldChars=Array.from(input),newChars=Array.from(output);
+ let common=0;while(common<oldChars.length&&common<newChars.length&&oldChars[common]===newChars[common])common++;
+ $('record-step').textContent=state.step+' / '+records.length+' token';
+ $('next-token').disabled=completed;
+ $('record-prompt').textContent=newChars.slice(0,common).join('');
+ const latest=document.createElement('mark');latest.textContent=newChars.slice(common).join('');$('record-prompt').append(latest);
+ const chosenBefore=previous?previous.candidates.find(c=>c.id===previous.chosen):null;
+ $('record-status').textContent=completed?records.length+' tokenを追加しました。モデルを切り替えて、同じ入力の続きと比べてみましょう。':state.step===0?'まだ続きを選んでいません。最後の位置の分布から1token選びます。':'直前に選んだのは「'+tokenName(chosenBefore)+'」。右側は伸びた入力から計算した次の分布です。';
+ const record=records[Math.min(state.step,records.length-1)];
+ $('distribution-title').textContent=completed?'最後に使った確率分布':'次のtokenの確率';
+ const maximum=record.candidates[0].probability;
+ $('record-probabilities').innerHTML='';
+ record.candidates.forEach(candidate=>$('record-probabilities').append(barRow(tokenName(candidate)+(candidate.id===record.chosen?' *':''),candidate.probability,maximum,candidate.id===record.chosen)));
+ const note=document.createElement('p');note.className='small';note.textContent='* 記録で'+(completed?'最後に選んだ':'次に選ばれる')+'候補';$('record-probabilities').append(note);
+}
+function handleFragment() {
+ if(location.hash==='#causal-mask') renderMask();
+ document.querySelectorAll('nav a').forEach(link=>link.setAttribute('aria-current',String(link.hash===location.hash)));
+}
+$('temperature-range').addEventListener('input',updateTemperature);
+$('choose-greedy').addEventListener('click',()=>choose('greedy'));
+$('choose-sampling').addEventListener('click',()=>choose('sampling'));
+$('reset-choices').addEventListener('click',()=>{state.choices=[];$('choice-history').textContent='';$('temperature-choice').textContent='—';$('choice-method').textContent='ボタンを押して選択';});
+$('record-stage').addEventListener('change',()=>{state.stage=$('record-stage').value;state.step=0;renderGeneration();});
+$('next-token').addEventListener('click',()=>{if(state.step<trace[state.stage].length){state.step++;renderGeneration();}});
+$('restart-generation').addEventListener('click',()=>{state.step=0;renderGeneration();});
+window.addEventListener('hashchange',handleFragment);
+updateTemperature();renderGeneration();
+const demoKeys = [[2,0],[0,2],[-1,-1]];
+const demoValues = [[1.5,0],[0,2],[-1,-1]];
+let softmaxPhase = 0;
+let sumStep = 0;
+let sumTimer = null;
+function vectorText(v) { return '['+v.map(x=>x.toFixed(2)).join(', ')+']'; }
+function dot(a,b) { return a[0]*b[0]+a[1]*b[1]; }
+function multiplyVector(x,w) { return [x[0]*w[0][0]+x[1]*w[1][0],x[0]*w[0][1]+x[1]*w[1][1]]; }
+function demoAttention(q, keys) { return softmax(keys.map(k=>dot(q,k)/Math.sqrt(2))); }
+function demoQuery() { const a=Number($('dot-angle').value)*Math.PI/180; const length=Number($('dot-length').value); return [length*Math.cos(a),length*Math.sin(a)]; }
+function demoPlane(arrows) {
+ let extent=2.8;
+ arrows.forEach(a=>{for(const v of [a.from||[0,0],a.to]) extent=Math.max(extent,Math.abs(v[0])+0.8,Math.abs(v[1])+0.8);});
+ const scale=170/extent;
+ const point=v=>[220+v[0]*scale,220-v[1]*scale];
+ let s='<svg viewBox="0 0 440 440" role="img" aria-label="2次元ベクトルの向きと長さ">';
+ for(let n=-2;n<=2;n++) { const x=point([n,0])[0], y=point([0,n])[1]; s+='<path d="M '+x+' 30 V 410 M 30 '+y+' H 410" stroke="#e2e7ee" stroke-width="1"/>'; }
+ s+='<path d="M 30 220 H 410 M 220 30 V 410" stroke="#8999ab" stroke-width="1.5"/><text x="405" y="240" font-size="12">x</text><text x="230" y="35" font-size="12">y</text>';
+ arrows.forEach(a=>{
+  const start=point(a.from||[0,0]), end=point(a.to);
+  const dx=end[0]-start[0],dy=end[1]-start[1],len=Math.hypot(dx,dy);
+  if(len<0.01) return;
+  const ux=dx/len,uy=dy/len;
+  const opacity=a.opacity===undefined?1:a.opacity;
+  s+='<g opacity="'+opacity+'"><line x1="'+start[0]+'" y1="'+start[1]+'" x2="'+end[0]+'" y2="'+end[1]+'" stroke="'+a.color+'" stroke-width="'+(a.width||3)+'"/>';
+  s+='<polygon points="'+end[0]+','+end[1]+' '+(end[0]-ux*10-uy*4)+','+(end[1]-uy*10+ux*4)+' '+(end[0]-ux*10+uy*4)+','+(end[1]-uy*10-ux*4)+'" fill="'+a.color+'"/>';
+  if(a.label) s+='<text x="'+(end[0]+ux*15)+'" y="'+(end[1]+uy*15+(a.dy||0))+'" text-anchor="middle" font-size="15" fill="'+a.color+'">'+a.label+'</text>';
+  s+='</g>';
+ });
+ return s+'</svg>';
+}
+function stopSum() { if(sumTimer!==null) {clearInterval(sumTimer);sumTimer=null;} }
+function renderDot() {
+ const q=demoQuery();
+ const scores=demoKeys.map(k=>dot(q,k)/Math.sqrt(2));
+ const max=Math.max(...scores),exps=scores.map(s=>Math.exp(s-max)),weights=softmax(scores);
+ const arrows=demoKeys.map((k,i)=>({to:k,color:'#315e92',label:'K'+i}));
+ arrows.push({to:q,color:'#b36436',label:'Q',width:5});
+ $('dot-plane').innerHTML=demoPlane(arrows);
+ $('dot-angle-value').textContent=$('dot-angle').value+'°';
+ $('dot-length-value').textContent=Number($('dot-length').value).toFixed(1);
+ $('dot-formula').textContent='Q = '+vectorText(q)+'\nK₀ = [2, 0]\nscore₀ = ('+q[0].toFixed(2)+' × 2 + '+q[1].toFixed(2)+' × 0) / √2 = '+scores[0].toFixed(3);
+ $('softmax-stage').textContent=['① 内積を√2で割る。負のscoreもあります。','② exp(score − 最大score)を計算。すべて正になります。','③ それぞれをexpの合計で割る。割合の合計は1です。'][softmaxPhase];
+ $('softmax-next').textContent=softmaxPhase===0?'次へ：指数関数に通す':'次へ：合計で割る';
+ $('softmax-next').disabled=softmaxPhase===2;
+ $('dot-table').innerHTML=scores.map((s,i)=>'<tr><th>K'+i+'</th><td>'+s.toFixed(3)+'</td><td>'+(softmaxPhase>=1?exps[i].toFixed(3):'—')+'</td><td>'+(softmaxPhase===2?(weights[i]*100).toFixed(1)+'%':'—')+'</td></tr>').join('');
+ $('softmax-stack').innerHTML=softmaxPhase===2?weights.map((w,i)=>'<span style="flex:'+w+';background:'+['#315e92','#25766b','#87604b'][i]+'" title="K'+i+': '+(w*100).toFixed(1)+'%">K'+i+'</span>').join(''):'';
+}
+function renderSum() {
+ const weights=demoAttention(demoQuery(),demoKeys);
+ let total=[0,0];
+ const arrows=demoValues.map((v,i)=>({to:v,color:'#8999ab',opacity:0.4,label:'V'+i}));
+ for(let i=0;i<sumStep;i++) {
+  const next=[total[0]+weights[i]*demoValues[i][0],total[1]+weights[i]*demoValues[i][1]];
+  arrows.push({from:total,to:next,color:'#315e92',width:4});total=next;
+ }
+ arrows.push({to:total,color:'#b36436',width:5,label:sumStep===3?'出力':'途中の合計',dy:-16});
+ $('sum-plane').innerHTML=demoPlane(arrows);
+ $('sum-terms').innerHTML=demoValues.map((v,i)=>'<div class="sum-term '+(i<sumStep?'included':'')+'">'+weights[i].toFixed(3)+' × '+vectorText(v)+' = '+vectorText(v.map(x=>x*weights[i]))+'</div>').join('');
+ $('sum-total').textContent='合計 = '+vectorText(total);
+ $('sum-step').textContent=sumStep+' / 3';$('sum-next').disabled=sumStep===3;
+}
+const inputVectors=[[2,0],[0,2],[1,1]];
+const wState={q:[[2,0],[0,1]],k:[[1,0],[0,1]],v:[[1,0],[0,1]]};
+function buildWInputs() {
+ $('w-inputs').innerHTML='';
+ for(const name of ['q','k']) {
+  const panel=document.createElement('div');panel.className='panel';
+  panel.innerHTML='<h3>W'+name+'：'+(name==='q'?'参照する側':'参照される側')+'</h3><table class="matrix">'+wState[name].map((row,i)=>'<tr>'+row.map((v,j)=>'<td><input type="number" min="-3" max="3" step="0.5" value="'+v+'" data-w="'+name+'" data-row="'+i+'" data-column="'+j+'" aria-label="W'+name+' 行'+i+' 列'+j+'"></td>').join('')+'</tr>').join('')+'</table>';
+  $('w-inputs').append(panel);
+ }
+ const panel=document.createElement('div');panel.className='panel';panel.innerHTML='<h3>Wv：集める情報</h3><div id="w-value-matrix" class="formula"></div>';$('w-inputs').append(panel);
+ $('w-inputs').querySelectorAll('input').forEach(input=>input.addEventListener('input',renderW));
+ renderW();
+}
+function renderW() {
+ const inputs=Array.from($('w-inputs').querySelectorAll('input'));
+ if(inputs.some(input=>input.value===''||!input.validity.valid)) { $('w-error').textContent='−3〜3の数値を0.5刻みで入力してください。';return; }
+ $('w-error').textContent='';
+ inputs.forEach(input=>wState[input.dataset.w][Number(input.dataset.row)][Number(input.dataset.column)]=Number(input.value));
+ const presets={identity:[[1,0],[0,1]],double:[[2,0],[0,2]],swap:[[0,1],[1,0]]};
+ wState.v=presets[$('w-value-preset').value];
+ const index=Number($('w-query').value),x=inputVectors[index],q=multiplyVector(x,wState.q);
+ const keys=inputVectors.map(v=>multiplyVector(v,wState.k));
+ const values=inputVectors.map(v=>multiplyVector(v,wState.v));
+ const scores=keys.map(k=>dot(q,k)/Math.sqrt(2)),weights=softmax(scores);
+ $('w-value-matrix').textContent=JSON.stringify(wState.v);
+ $('w-query-formula').textContent='Q['+index+'] = '+vectorText(x)+' × '+JSON.stringify(wState.q)+' = '+vectorText(q);
+ const arrows=keys.map((v,i)=>({to:v,color:'#315e92',label:'K'+i}));arrows.push({to:q,color:'#b36436',label:'Q'+index,width:5,dy:-18});
+ $('w-plane').innerHTML=demoPlane(arrows);
+ $('w-chain').innerHTML=keys.map((k,i)=>'<tr><th>'+i+'</th><td>'+vectorText(k)+'</td><td>'+scores[i].toFixed(3)+'</td><td>'+(weights[i]*100).toFixed(1)+'%</td></tr>').join('');
+ let total=[0,0];
+ $('w-value-terms').innerHTML=values.map((v,i)=>{total[0]+=weights[i]*v[0];total[1]+=weights[i]*v[1];return '<div class="sum-term included">V'+i+' = '+vectorText(v)+'<br>'+weights[i].toFixed(3)+' × '+vectorText(v)+'</div>';}).join('');
+ $('w-output').textContent='出力 = '+vectorText(total);
+}
+for(const id of ['dot-angle','dot-length']) $(id).addEventListener('input',()=>{stopSum();sumStep=0;renderDot();renderSum();});
+$('softmax-next').addEventListener('click',()=>{softmaxPhase=Math.min(2,softmaxPhase+1);renderDot();});
+$('softmax-reset').addEventListener('click',()=>{softmaxPhase=0;renderDot();});
+$('sum-next').addEventListener('click',()=>{stopSum();sumStep=Math.min(3,sumStep+1);renderSum();});
+$('sum-reset').addEventListener('click',()=>{stopSum();sumStep=0;renderSum();});
+$('sum-play').addEventListener('click',()=>{stopSum();sumStep=0;renderSum();if(window.matchMedia('(prefers-reduced-motion: reduce)').matches){sumStep=3;renderSum();return;}sumTimer=setInterval(()=>{sumStep++;renderSum();if(sumStep===3)stopSum();},700);});
+$('w-identity').addEventListener('click',()=>{wState.q=[[1,0],[0,1]];wState.k=[[1,0],[0,1]];buildWInputs();});
+$('w-query-zero').addEventListener('click',()=>{wState.q=[[0,0],[0,0]];buildWInputs();});
+$('w-query').addEventListener('change',renderW);
+$('w-value-preset').addEventListener('change',renderW);
+renderDot();renderSum();buildWInputs();
+function renderMask() {
+ const names=['日本の','首都','は'];
+ const selected=Number($('mask-query').value),causal=$('causal').checked;
+ const weights=inputVectors.map((q,i)=>softmax(inputVectors.map((k,j)=>causal&&j>i?-Infinity:dot(q,k)/Math.sqrt(2))));
+ let html='<table class="chain-table heatmap"><thead><tr><th>行 → 列</th>'+names.map((name,i)=>'<th>'+i+'：'+name+'</th>').join('')+'</tr></thead><tbody>';
+ weights.forEach((row,i)=>{html+='<tr class="'+(i===selected?'selected-row':'')+'"><th>'+i+'：'+names[i]+'</th>'+row.map((w,j)=>'<td style="background:rgba(49,94,146,'+(0.05+w*0.65)+');color:'+(w>.55?'white':'#292b2e')+'">'+(causal&&j>i?'× 0%':(w*100).toFixed(1)+'%')+'</td>').join('')+'</tr>';});
+ $('mask-map').innerHTML=html+'</tbody></table>';
+ $('mask-query-title').textContent='位置'+selected+'「'+names[selected]+'」からの参照';
+ $('mask-bars').innerHTML='';
+ weights[selected].forEach((w,j)=>$('mask-bars').append(barRow(names[j]+(j>selected?'（未来）':''),w)));
+ $('mask-explanation').textContent=selected===2?'最後の位置には、どちらの設定でも未来の入力がありません。位置0か1を選び、学習中の予測で起きる違いを見てください。':causal?'未来の「'+names[selected+1]+'」の重みは0。正解のtokenを直接参照する経路を閉じました。':'次に当てる「'+names[selected+1]+'」が未来の入力にあり、重みも0ではありません。この経路から答えを参照できてしまいます。';
+}
+$('causal').addEventListener('change',renderMask);
+$('mask-query').addEventListener('change',renderMask);
+renderMask();
+
+handleFragment();
+</script>
+</body>
+</html>
