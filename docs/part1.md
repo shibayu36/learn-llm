@@ -117,7 +117,9 @@ FineWeb-2 Edu Japaneseの `small_tokens_cleaned` から1万文書を取り出し
 tiny-gpt-handson/
 ├── pyproject.toml
 ├── prepare_data.py
-├── main.py               節ごとに書き換えて実行する確認・学習の入口
+├── 1_2.py               1.2の動作確認
+├── 1_3.py               1.3の動作確認（以降も節ごとに作成）
+├── 1_13.py              学習と結果の保存
 ├── data/
 │   └── fineweb-japanese-10k/
 │       ├── train.jsonl
@@ -137,7 +139,7 @@ tiny-gpt-handson/
 
 `model.py` は1.3で完成時の構造を先に置き、節ごとに部品の中身を埋めて、1.10でモデル全体がつながります。学習コマンドを実行するのは1.13です。
 
-各節の動作確認・実験のコードは、作業用ディレクトリの `main.py` に保存し `uv run python main.py` で実行します。次の節に進むときは中身を置き換えてください。`tiny_gpt/` の各ファイルには部品だけを置き、実行の入口は `main.py` に集約します。最後の1.13では、`main.py` は学習を呼び出すだけになります。
+各節の動作確認・実験のコードは、作業用ディレクトリの `1_2.py`・`1_3.py` のように節番号に対応するファイルへ保存します。1.2なら `uv run python 1_2.py` で実行します。各ファイルにはその節で必要な準備処理と確認コードを置き、`tiny_gpt/` の部品を呼び出します。最後の1.13では `1_13.py` から学習を実行し、学習済みパラメータ・設定・語彙を `runs/part1/` に保存します。
 
 ### uvで環境を用意する
 
@@ -351,7 +353,7 @@ Tokenizerは文字ごとにこの表を引き、対応するIDに置き換えま
 ID：   1879   1959   482   3934   3660   483   1983   670   475   461   415
 ```
 
-IDの大小には意味がなく、文字をコード順に並べた結果にすぎません。「の」（482）の隣が「ね」（481）と「は」（483）なのもそのためです。このID列は、この節の `main.py` を実行すると同じ値で確認できます。
+IDの大小には意味がなく、文字をコード順に並べた結果にすぎません。「の」（482）の隣が「ね」（481）と「は」（483）なのもそのためです。このID列は、この節の `1_2.py` を実行すると同じ値で確認できます。
 
 実際のGPTは、よく現れる文字の並びを1つのtokenにまとめるBPEという方式を使い、語彙も数万から十数万あります。仕組みの理解には1文字単位で十分なので、この教材では文字単位のまま進めます。
 
@@ -450,7 +452,7 @@ class Tokenizer:
 
 `Tokenizer.from_texts` がtrainの文字から語彙を作り、`encode` と `decode` が文字列とID列を変換します。
 
-**`main.py` を次の内容にして実行します。** 語彙はtrainの文書から毎回作ります。1秒もかからず、同じ文書からは同じ語彙ができます。
+**`1_2.py` を次の内容で作成します。** 語彙はtrainの文書から毎回作ります。1秒もかからず、同じ文書からは同じ語彙ができます。
 
 ```python
 from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
@@ -465,7 +467,7 @@ print("復元:", tokenizer.decode(token_ids))
 ```
 
 ```bash
-uv run python main.py
+uv run python 1_2.py
 ```
 
 先ほど語彙を引いて求めたものと同じID列が出て、`decode` で元の文字列に戻ります。
@@ -481,15 +483,11 @@ token ID: [1879, 1959, 482, 3934, 3660, 483, 1983, 670, 475, 461, 415]
 
 各位置の正解が「1token先」になっているかを、ID列と復元した文章で確かめます。
 
-**`main.py` を次の内容にして実行します。**
+**`1_2.py` の末尾に次を追記し、同じコマンドで実行します。**
 
 ```python
 import torch
-from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
 
-tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
-
-text = "日本の首都は東京です。"
 ids = torch.tensor(tokenizer.encode(text), dtype=torch.long)
 x = ids[:-1]
 y = ids[1:]
@@ -649,7 +647,7 @@ class TinyGPT(nn.Module):
 
 1.2のTokenizerで「日本の」をID列にし、そのままモデルへ入れます。語彙は1.2と同じ4,052文字なので表は4,052行になり、表示して読めるように `d_model` だけ4にします。
 
-**`main.py` を次の内容にして実行します。** 1.2の内容はそのまま残し、importの2行と末尾のモデルへ入れる部分を足しています。
+**`1_3.py` を次の内容で作成します。**
 
 ```python
 import torch
@@ -658,16 +656,6 @@ from tiny_gpt.model import TinyGPT
 from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
 
 tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
-
-text = "日本の首都は東京です。"
-ids = torch.tensor(tokenizer.encode(text), dtype=torch.long)
-x = ids[:-1]
-y = ids[1:]
-print("元のID:", ids.tolist())
-print("入力:", tokenizer.decode(x.tolist()))
-print("正解:", tokenizer.decode(y.tolist()))
-print(x.shape, y.shape)
-assert tokenizer.decode(tokenizer.encode(text)) == text
 
 config = Config()
 config.d_model = 4
@@ -680,6 +668,10 @@ x = model(ids)
 print(x.shape)
 print(x[0])
 print(torch.equal(x[0], model.token_embedding.weight[ids[0]]))
+```
+
+```bash
+uv run python 1_3.py
 ```
 
 `ids` は `[[1879, 1959, 482]]` になります。内側が「日 本 の」の3文字の系列で、本文の例と同じIDです。外側の `[ ]` はバッチの軸で、系列を1本だけ入れているので `B=1` です。複数の系列をまとめて入れるのは、学習で必要になる1.11で扱います。表から引くのは行1879・行1959・行482で、入力のshape `[1, 3]` が出力の `[1, 3, 4]` に変わります。`transformer_block` 以降はまだ入力をそのまま返すので、表示される3行は表から引いた行そのものです。
@@ -731,68 +723,79 @@ token_embedding（4052行×4列）               position_embedding（128行×4�
 
 位置の表を `TinyGPT` に足します。行数はConfigの `context_length` です。`forward` では入力の長さに応じて `0, 1, 2, ...` という位置番号を作り、位置の表から行を引いてToken Embeddingへ足します。
 
-**`model.py` の `TinyGPT` を次のクラスへ置き換えます。** 変わるのは `__init__` の `context_length`・`position_embedding` と、`forward` の位置を足すまでの部分です。
+**`model.py` の `TinyGPT` に、位置の表とそれを足す処理を追加します。**
+
+以下の `...` は変更しない既存部分の省略です。手元のコードは残してください。独立した追加項目には `# ← 追加`、まとまった追加処理には先頭に `# --- 追加: ... ---` を1つ付けます。以降もこの記法を使い、既存部分を変更するときは `# --- 差し替え: ... ---` で対象を示します。
 
 ```python
 class TinyGPT(nn.Module):
     def __init__(self, vocab_size: int, config: Config) -> None:
         super().__init__()
-        self.context_length = config.context_length
+        self.context_length = config.context_length  # ← 追加
         self.token_embedding = nn.Embedding(vocab_size, config.d_model)
-        self.position_embedding = nn.Embedding(
+        self.position_embedding = nn.Embedding(  # ← 追加
             config.context_length, config.d_model
         )
-        self.transformer_block = TransformerBlock(config.d_model)
-        self.final_norm = LayerNorm(config.d_model)
-        # 1.10で、D次元からvocab_size次元へ変換するLinearに置き換える。
-        self.lm_head = nn.Identity()
+        ...
 
     def forward(self, ids: torch.Tensor) -> torch.Tensor:
+        # --- 追加: Token Embeddingを引く前 ---
+
         length = ids.shape[1]
         if length == 0 or length > self.context_length:
             raise ValueError("入力の長さがcontext_lengthの範囲外です")
 
         # 0, 1, 2, … という位置番号。位置の表の行を引くのに使う。
         positions = torch.arange(length)
-        # token_embeddingは語彙数×Dの表で、各行が1つの文字の性質を表すベクトル。
-        # idsの各文字IDでその文字の行を引き、整数のIDを学習で更新できるベクトルに
-        # 置き換える。[B, T] → [B, T, D]
+
         x = self.token_embedding(ids)
         # 各位置のベクトルに、位置の表からその位置の行を足す。「何の文字か」に
         # 「何番目か」が重なったベクトルになる。位置の表は全系列で共通。
         # [B, T, D] + [T, D]
-        x = x + self.position_embedding(positions)
+        x = x + self.position_embedding(positions)  # ← 追加
         x = self.transformer_block(x)
-        x = self.final_norm(x)
-        x = self.lm_head(x)
-        return x
+        ...
 ```
 
 この方式では用意した位置の表より長い系列をそのまま入力できません。たとえば位置の表が128行なら使える位置は0〜127です。`forward` の先頭で長さを確かめているのはこのためです。
 
-### 動作確認 — 位置の表の行が足されているか
+### 動作確認 — 同じ「京」でも位置が違えば別のベクトルになるか
 
-1.3と同じ「日本の」を入れ、出力が「表から引いた行」から「表から引いた行に位置の行を足したもの」へ変わったことを見ます。
+本文と同じ「東京と京都」を入れ、位置1と位置3の「京」を比べます。位置を足す前は同じベクトルですが、足した後は違うベクトルになるはずです。
 
-まず1.3の `main.py` をそのまま実行します。`x` のshapeは `[1, 3, 4]` のままですが、1.3で `True` だった最後の比較が `False` になります。`x[0]` が `token_embedding` の行そのものではなくなったためです。
-
-**次に、1.3の `main.py` の末尾に次を追記して実行します。**
+**`1_4.py` を次の内容で作成します。**
 
 ```python
-positions = torch.arange(ids.shape[1])
-print(model.position_embedding.weight[positions])
-print(
-    torch.equal(
-        x[0],
-        model.token_embedding.weight[ids[0]]
-        + model.position_embedding.weight[positions],
-    )
-)
+import torch
+from tiny_gpt.config import Config
+from tiny_gpt.model import TinyGPT
+from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
+
+tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
+
+config = Config()
+config.d_model = 4
+model = TinyGPT(tokenizer.vocab_size, config)
+
+ids = torch.tensor([tokenizer.encode("東京と京都")], dtype=torch.long)
+token_vectors = model.token_embedding(ids)
+x = model(ids)
+
+print("位置を足す前")
+print("位置1の「京」:", token_vectors[0, 1].detach())
+print("位置3の「京」:", token_vectors[0, 3].detach())
+print("位置を足した後")
+print("位置1の「京」:", x[0, 1].detach())
+print("位置3の「京」:", x[0, 3].detach())
 ```
 
-`positions` は `[0, 1, 2]` で、`position_embedding.weight[positions]` が位置の表の行0・行1・行2です。文字の表から引いた行1879・行1959・行482にこの3行を足したものが `x[0]` と一致し、最後の比較は `True` になります。
+```bash
+uv run python 1_4.py
+```
 
-位置の表は全系列で共通なので、たとえば「日」が位置0に来ても位置2に来ても、文字の表から引く行は同じ行1879ですが、足す位置の行が行0と行2で違います。同じtokenが位置ごとに別のベクトルになり、位置を区別できる表現に変わりました。
+「位置を足す前」の2行は、どちらもToken Embeddingの「京」の行なので同じ数値になります。「位置を足した後」の2行は、位置1と位置3のベクトルをそれぞれ足しているので違う数値になります。これで同じ文字にも「どこにあるか」の違いが入りました。表の値は乱数で初期化されるため、具体的な数値は実行のたびに変わります。
+
+この時点では `transformer_block` 以降が入力をそのまま返すので、`model(ids)` の出力で位置を足した直後のベクトルを見られます。
 
 ### この節で理解したこと
 
@@ -892,7 +895,9 @@ output  = weights V          割合でValueを混ぜる [T, D]
 **`model.py` の先頭に `import math` を足し、`scaled_attention` と `SelfAttention` の空実装を次に置き換えます。**
 
 ```python
-import math
+import math  # ← 追加
+
+...
 
 
 def scaled_attention(
@@ -941,23 +946,41 @@ class SelfAttention(nn.Module):
 
 ### 動作確認 — 入力からQ・K・Vを作って通す
 
-`SelfAttention` に `[B, T, D]` の入力を渡し、Attention weightと出力のshapeを確かめます。
+「日本の」の文字と位置のベクトルを足して `embedded`（shapeは `[1, 3, 4]`）を作ります。これを `SelfAttention` に渡し、Attention weightと出力のshapeを確かめます。
+
+**`1_5.py` を次の内容で作成します。**
 
 ```python
 import torch
-from tiny_gpt.model import SelfAttention
+from tiny_gpt.config import Config
+from tiny_gpt.model import SelfAttention, TinyGPT, scaled_attention
+from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
 
-torch.manual_seed(0)
-attention = SelfAttention(4)
-x = torch.randn(1, 3, 4)
-output, weights = attention(x)
+tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
+
+config = Config()
+config.d_model = 4
+model = TinyGPT(tokenizer.vocab_size, config)
+
+ids = torch.tensor([tokenizer.encode("日本の")], dtype=torch.long)
+positions = torch.arange(ids.shape[1])
+embedded = model.token_embedding(ids) + model.position_embedding(positions)
+
+attention = SelfAttention(config.d_model)
+output, weights = attention(embedded)
 print(output.shape, weights.shape)
 print(weights[0])
 ```
 
-出力は `[1, 3, 4]`、Attention weightは `[1, 3, 3]` です。各行の合計は1です。位置0の行にも位置1・2への重みが付いています。まだ未来のtokenを参照できるためです。
+```bash
+uv run python 1_5.py
+```
 
-Attention weightの値は0.2〜0.5の範囲に散らばり、本文の例のような大きな偏りがありません。Wq・Wkが乱数のままなので、QueryとKeyがまだ噛み合っていないためです。学習でこの表が更新されて初めて、文に応じた偏りが現れます。
+出力は `[1, 3, 4]`、Attention weightは `[1, 3, 3]` です。各行の合計は1です。「日」の行にも「本」「の」への重みが付いています。まだ未来のtokenを参照できるためです。
+
+以降の部品の確認でも、同じ手順で文字と位置のベクトルを足して入力を作ります。
+
+Wq・Wkが乱数の初期値なので、Attention weightの偏りも偶然に決まっています。学習ではこの表を更新し、次のtokenを予測するのに役立つ情報の集め方を獲得します。
 
 ### 実験 — 混ぜる割合と混ぜる情報を分けて変える
 
@@ -965,10 +988,9 @@ Q・Kが決めるAttention weightとVから集める情報が別の役割を持�
 
 2つの位置だけの小さな例を動かします。位置0のQueryは位置0のKeyと、位置1のQueryは位置1のKeyと向きが揃っているので、それぞれ自分の位置をより多く参照します。
 
-```python
-import torch
-from tiny_gpt.model import scaled_attention
+**`1_5.py` の末尾に次を追記し、同じコマンドで実行します。**
 
+```python
 q = torch.tensor([[[1.0, 0.0], [0.0, 1.0]]])
 k = torch.tensor([[[1.0, 0.0], [0.0, 1.0]]])
 v = torch.tensor([[[10.0, 0.0], [0.0, 20.0]]])
@@ -1018,20 +1040,19 @@ MaskがないSelf-Attentionは全位置を参照できます。上の制限を�
 
 ### 実装
 
-**`model.py` の `scaled_attention` を次の関数へ置き換えます。** `SelfAttention` クラスは変更しません。
+**`model.py` の `scaled_attention` に、`causal` 引数と未来を隠す処理を追加します。** Maskをかける位置は、スコアを計算した後、softmaxで割合へ変換する前です。
 
 ```python
 def scaled_attention(
-    q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, causal: bool = True,
+    q: torch.Tensor, k: torch.Tensor, v: torch.Tensor,
+    causal: bool = True,  # ← 追加
 ) -> tuple[torch.Tensor, torch.Tensor]:
     key_size = q.shape[-1]
-    length = q.shape[-2]
-    # 各位置のQueryと各位置のKeyの内積を一度に計算する。scores[b, i, j] は
-    # 「位置iが探しているもの」と「位置jが持っているもの」の噛み合い度合い。
-    # [B, T, D] @ [B, D, T] → [B, T, T]
-    scores = q @ k.transpose(-2, -1)
-    # 成分数が増えるほど内積の幅が広がるので、√D で割って幅を揃える。
+    length = q.shape[-2]  # ← 追加
+    ...
     scores = scores / math.sqrt(key_size)
+
+    # --- 追加: softmaxの前に未来のスコアを隠す ---
 
     if causal:
         # 各位置から見て未来にあたる位置だけTrueの表。対角線より右上が未来。[T, T]
@@ -1041,11 +1062,8 @@ def scaled_attention(
         # 割合が0になる。予測すべき答えを見せないため。
         scores = scores.masked_fill(future, float("-inf"))
 
-    # 行ごとに合計1の割合へ変換する。weights[b, i] は位置iが各位置を参照する割合。
     weights = torch.softmax(scores, dim=-1)
-    # 各位置のValueをその割合で混ぜる。output[b, i] は位置iが集めた情報。[B, T, D]
-    output = weights @ v
-    return output, weights
+    ...
 ```
 
 `torch.triu(..., diagonal=1)` は対角線より右上を残します。Maskのshapeは `[T, T]` で、バッチ内の各スコア行列へ共通に適用されます。現在のtokenに相当する対角線は隠しません。
@@ -1054,7 +1072,9 @@ def scaled_attention(
 
 Maskの有無だけを変え、未来に対応するAttention weightが0になることを確かめます。
 
-1.5の実験で使った2つの位置の例を、Maskあり・なしで比較します。新しい関数では `causal=True` が既定値です。
+1.5と同じ2つの位置の `q`・`k`・`v` を用意し、Maskあり・なしを並べて比較します。
+
+**`1_6.py` を次の内容で作成します。**
 
 ```python
 import torch
@@ -1071,7 +1091,11 @@ print(causal_weights)
 assert causal_weights[0, 0, 1].item() == 0.0
 ```
 
-Maskありでは1行目が `[1, 0]` になります。最初のtokenは自分しか参照できません。2行目はもともと未来を含まないため、約 `[0.330, 0.670]` のままです。
+```bash
+uv run python 1_6.py
+```
+
+Maskなしでは1.5と同じ値が出ます。Maskありでは1行目が `[1, 0]` で、最初のtokenは自分しか参照できません。2行目はもともと未来を含まないため約 `[0.330, 0.670]` のままです。
 
 操作デモ：[Causal Maskの有無を切り替える](demos/part1.html#causal-mask)
 
@@ -1133,7 +1157,9 @@ MLP(x) = GELU(xW₁ + b₁)W₂ + b₂
 **`model.py` の先頭に `from torch.nn import functional as F` を足し、`FeedForward` の空実装を次に置き換えます。**
 
 ```python
-from torch.nn import functional as F
+from torch.nn import functional as F  # ← 追加
+
+...
 
 
 class FeedForward(nn.Module):
@@ -1164,6 +1190,8 @@ class FeedForward(nn.Module):
 
 `FeedForward(2)` の `expand` は8個の候補を作ります。そのうち0番目の候補の重みを `[2.0, 2.0]`、バイアスを−3にし、`[..., 0]` でその候補の値だけを取り出します。パラメータは学習で更新される値なので、手で書き換えるときは `torch.no_grad()` の中で行います。
 
+**`1_7.py` を次の内容で作成します。**
+
 ```python
 import torch
 from torch.nn import functional as F
@@ -1175,10 +1203,14 @@ with torch.no_grad():
     mlp.expand.bias[0] = -3.0
 
 # 各行は [首都の情報, 助詞「は」]
-x = torch.tensor([[1.0, 1.0], [1.0, 0.0], [0.0, 1.0], [0.0, 0.0]])
-feature = F.gelu(mlp.expand(x))[..., 0]
-for inputs, value in zip(x.tolist(), feature.tolist()):
+pairs = torch.tensor([[1.0, 1.0], [1.0, 0.0], [0.0, 1.0], [0.0, 0.0]])
+feature = F.gelu(mlp.expand(pairs))[..., 0]
+for inputs, value in zip(pairs.tolist(), feature.tolist()):
     print(inputs, f"{value:.2f}")
+```
+
+```bash
+uv run python 1_7.py
 ```
 
 ```text
@@ -1192,24 +1224,35 @@ for inputs, value in zip(x.tolist(), feature.tolist()):
 
 ### 実験 — 別のtokenへ変更が伝わるか
 
-位置0の入力だけを変え、位置2の出力が変わるかを確かめます。
+「日本の」の `embedded` で、「日」の入力だけを変え、「の」の出力が変わるかを確かめます。
+
+**`1_7.py` の末尾に次を追記し、同じコマンドで実行します。**
 
 ```python
-import torch
-from tiny_gpt.model import FeedForward
+from tiny_gpt.config import Config
+from tiny_gpt.model import TinyGPT
+from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
 
-mlp = FeedForward(4)
-x = torch.randn(1, 3, 4)
-changed = x.clone()
+tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
+config = Config()
+config.d_model = 4
+model = TinyGPT(tokenizer.vocab_size, config)
+
+ids = torch.tensor([tokenizer.encode("日本の")], dtype=torch.long)
+positions = torch.arange(ids.shape[1])
+embedded = model.token_embedding(ids) + model.position_embedding(positions)
+
+mlp = FeedForward(config.d_model)
+changed = embedded.clone()
 changed[0, 0] = changed[0, 0] + 10.0
 
-original_output = mlp(x)
+original_output = mlp(embedded)
 changed_output = mlp(changed)
 torch.testing.assert_close(original_output[0, 2], changed_output[0, 2])
 print(original_output.shape)
 ```
 
-位置2の出力は同じです。MLP単独では別のtokenの変更は伝わりません。一方Causal Self-Attentionでは位置2から過去の位置0を参照できるため、位置0の変更が位置2の出力へ影響することがあります。
+「の」の出力は同じです。MLP単独では別のtokenの変更は伝わりません。一方Causal Self-Attentionでは位置2から過去の位置0を参照できるため、位置0の変更が位置2の出力へ影響することがあります。
 
 ### この節で理解したこと
 
@@ -1331,17 +1374,35 @@ Residual Connectionは専用クラスを作らず、次の節の `x + ...` と�
 
 ### 動作確認 — 位置ごとに平均0・分散1に揃うか
 
+「日本の」の文字と位置のベクトルを足して `embedded` を作ります。これを10倍して5を足した、平均も分散もばらばらの入力を `LayerNorm` に通します。
+
+**`1_8.py` を次の内容で作成します。**
+
 ```python
 import torch
-from tiny_gpt.model import LayerNorm
+from tiny_gpt.config import Config
+from tiny_gpt.model import LayerNorm, TinyGPT
+from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
 
-torch.manual_seed(0)
-norm = LayerNorm(4)
-x = torch.randn(1, 3, 4) * 10 + 5
-normalized = norm(x)
-print(x[0].mean(dim=-1), x[0].var(dim=-1, unbiased=False))
+tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
+config = Config()
+config.d_model = 4
+model = TinyGPT(tokenizer.vocab_size, config)
+
+ids = torch.tensor([tokenizer.encode("日本の")], dtype=torch.long)
+positions = torch.arange(ids.shape[1])
+embedded = model.token_embedding(ids) + model.position_embedding(positions)
+
+norm = LayerNorm(config.d_model)
+wide = embedded * 10 + 5
+normalized = norm(wide)
+print(wide[0].mean(dim=-1), wide[0].var(dim=-1, unbiased=False))
 print(normalized[0].mean(dim=-1), normalized[0].var(dim=-1, unbiased=False))
-torch.testing.assert_close(norm(x), norm(x * 10))
+torch.testing.assert_close(norm(wide), norm(wide * 10))
+```
+
+```bash
+uv run python 1_8.py
 ```
 
 入力では3つの位置の平均と分散がばらばらです。LayerNormを通すと、どの位置も平均がほぼ0、分散がほぼ1になります。`scale` と `shift` の初期値は1と0なので、この時点では揃えた値がそのまま出ます。
@@ -1415,15 +1476,32 @@ class TransformerBlock(nn.Module):
 
 ### 動作確認 — shapeと書き足した更新分を確かめる
 
+「日本の」の `embedded` をBlockに通します。
+
+**`1_9.py` を次の内容で作成します。**
+
 ```python
 import torch
-from tiny_gpt.model import TransformerBlock
+from tiny_gpt.config import Config
+from tiny_gpt.model import TinyGPT, TransformerBlock
+from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
 
-torch.manual_seed(0)
-block = TransformerBlock(4)
-x = torch.randn(1, 3, 4)
-print(block(x).shape)
-print((block(x) - x)[0])
+tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
+config = Config()
+config.d_model = 4
+model = TinyGPT(tokenizer.vocab_size, config)
+
+ids = torch.tensor([tokenizer.encode("日本の")], dtype=torch.long)
+positions = torch.arange(ids.shape[1])
+embedded = model.token_embedding(ids) + model.position_embedding(positions)
+
+block = TransformerBlock(config.d_model)
+print(block(embedded).shape)
+print((block(embedded) - embedded)[0])
+```
+
+```bash
+uv run python 1_9.py
 ```
 
 `[1, 3, 4]` のまま出てきます。入力と同じshapeなので、出力をもう一度Blockへ渡せます。2つ目の表示は出力から入力を引いた値で、Blockが各位置に書き足した更新分（Attentionの更新分とMLPの更新分の合計）です。パラメータが乱数のままなので、まだ意味のある情報にはなっていません。
@@ -1484,37 +1562,24 @@ Blockの出力 [B, T, D] → final_norm → [B, T, D] → LM Head → logits [B,
 
 これで入力から出力までがつながります。1.3から入力をそのまま返していた `lm_head` を、候補の文字ごとのベクトルを持つ `nn.Linear(D, vocab_size)` に置き換えます。`transformer_block` と `final_norm` の中身は1.8・1.9で書いたものをそのまま使います。
 
-**`model.py` の `TinyGPT` を次のクラスへ置き換えます。** 変わるのは `__init__` の `lm_head` の行と、`forward` の `final_norm` 以降です。
+**`model.py` の `TinyGPT` で、`lm_head` の初期化と `forward` の最後を変更します。** `nn.Identity` の直前にある仮実装のコメントも削除します。
 
 ```python
 class TinyGPT(nn.Module):
     def __init__(self, vocab_size: int, config: Config) -> None:
-        super().__init__()
-        self.context_length = config.context_length
-        self.token_embedding = nn.Embedding(vocab_size, config.d_model)
-        self.position_embedding = nn.Embedding(
-            config.context_length, config.d_model
-        )
-        self.transformer_block = TransformerBlock(config.d_model)
+        ...
         self.final_norm = LayerNorm(config.d_model)
+
+        # --- 差し替え: lm_headの仮実装を以下に ---
+
         self.lm_head = nn.Linear(config.d_model, vocab_size)
 
     def forward(self, ids: torch.Tensor) -> torch.Tensor:
-        length = ids.shape[1]
-        if length == 0 or length > self.context_length:
-            raise ValueError("入力の長さがcontext_lengthの範囲外です")
-
-        # 0, 1, 2, … という位置番号。位置の表の行を引くのに使う。
-        positions = torch.arange(length)
-        # token_embeddingは語彙数×Dの表で、各行が1つの文字の性質を表すベクトル。
-        # idsの各文字IDでその文字の行を引き、整数のIDを学習で更新できるベクトルに
-        # 置き換える。[B, T] → [B, T, D]
-        x = self.token_embedding(ids)
-        # 各位置のベクトルに、位置の表からその位置の行を足す。「何の文字か」に
-        # 「何番目か」が重なったベクトルになる。位置の表は全系列で共通。
-        # [B, T, D] + [T, D]
-        x = x + self.position_embedding(positions)
+        ...
         x = self.transformer_block(x)
+
+        # --- 差し替え: final_normからreturnまでを以下に ---
+
         # 足し続けた本線のベクトルの幅を、内積を取る前に最後に一度揃える。
         x = self.final_norm(x)
         # 各位置のベクトルと、候補の文字ごとのベクトル（lm_headの重みの各行）との
@@ -1531,7 +1596,9 @@ Token Embeddingの表も `[vocab_size, D]` で、文字ごとにベクトルを�
 
 モデル全体を通して、出力が次token候補のlogitになっているか、未来の情報が過去へ漏れていないかを確認します。
 
-「日本の首都は東京です。」と「日本の通貨は円です。」は先頭の「日本の」が同じで、4文字目から違います。4文字目以降を変えても、先頭3文字の出力は変わらないはずです。
+Configの既定値（`d_model` 128）でモデルを作って全体を通します。「日本の首都は東京です。」と「日本の通貨は円です。」は先頭の「日本の」が同じで、4文字目から違います。4文字目以降を変えても、先頭3文字の出力は変わらないはずです。
+
+**`1_10.py` を次の内容で作成します。**
 
 ```python
 import torch
@@ -1539,9 +1606,9 @@ from tiny_gpt.config import Config
 from tiny_gpt.model import TinyGPT
 from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
 
+tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
 torch.manual_seed(42)
 config = Config()
-tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
 model = TinyGPT(tokenizer.vocab_size, config)
 model.eval()
 
@@ -1561,6 +1628,10 @@ parameter_count = 0
 for parameter in model.parameters():
     parameter_count += parameter.numel()
 print("パラメータ数:", parameter_count)
+```
+
+```bash
+uv run python 1_10.py
 ```
 
 shapeは `[1, 11, 4052]` で、11個の位置それぞれに4,052個のlogitが並びます。`torch.no_grad()` の中では、学習で使う記録を作りません。確認では学習しないので省いています。`model.eval()` はモデルを評価モードに切り替えます。このモデルでは動作は変わりません。パラメータ数は1,256,276と表示され、準備の表と一致します。
@@ -1840,6 +1911,8 @@ def train_model(
 
 まず、正解tokenのlogitを上げるとlossが下がることを確かめます。
 
+**`1_11.py` を次の内容で作成します。**
+
 ```python
 import torch
 from torch.nn import functional as F
@@ -1851,9 +1924,15 @@ print(F.cross_entropy(uncertain, target).item())
 print(F.cross_entropy(confident, target).item())
 ```
 
+```bash
+uv run python 1_11.py
+```
+
 結果は約1.099と約0.095です。次に、正解を `0` へ変えて同じlogitsを評価すると、2つ目のlossは大きくなります。自信を持って間違えるほど正解の確率が低くなるためです。
 
-続いて、logitsに対する勾配を表示し、上の図と同じ向きになるかを確かめます。上のコードの続きに追加して実行します。
+続いて、正解を `1` へ戻してlogitsに対する勾配を表示し、上の図と同じ向きになるかを確かめます。
+
+**`1_11.py` の末尾に次を追記し、同じコマンドで実行します。**
 
 ```python
 logits = torch.tensor([[0.0, 0.0, 0.0]], requires_grad=True)
@@ -1872,21 +1951,20 @@ tensor([[ 0.3333, -0.6667,  0.3333]])
 
 次に、作ったモデルとデータで実際にlossを測り、少しだけ学習させます。その前に、短い2文書をつないで境界にEOSが入ることも確かめます。
 
-**`main.py` を次の内容にして実行します。**
+**`1_11.py` の末尾に次を追記し、同じコマンドで実行します。**
 
 ```python
-import torch
 from tiny_gpt.config import Config
 from tiny_gpt.dataset import encode_documents, load_data, make_batch
 from tiny_gpt.model import TinyGPT
 from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
 from tiny_gpt.train import batch_loss, train_model
 
+tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
 config = Config()
 config.steps = 100
 config.eval_every = 50
 torch.manual_seed(config.seed)
-tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
 
 joined = encode_documents(["日本の首都は東京です。", "猫は"], tokenizer)
 print("つないだID:", joined.tolist())
@@ -1919,6 +1997,8 @@ print("秒数:", round(elapsed, 1))
 | 100 | 5.7953 | 5.8381 |
 
 わずか100回でも正解tokenへ確率が寄り始めています。全体の学習は生成処理を追加した後の1.13で行います。
+
+この100回の学習はパラメータ更新を確かめる実験で、結果はメモリ上にあります。学習済みパラメータをファイルへ保存する処理は1.13で追加します。
 
 ### この節で理解したこと
 
@@ -2028,6 +2108,8 @@ temperatureが変えるのはモデルのパラメータではなく、候補を
 
 まず、モデルと切り離してtemperatureだけを変えます。
 
+**`1_12.py` を次の内容で作成します。**
+
 ```python
 import torch
 
@@ -2037,25 +2119,28 @@ for temperature in (0.5, 1.0, 2.0):
     print(temperature, probabilities.tolist())
 ```
 
+```bash
+uv run python 1_12.py
+```
+
 上の表と同じ値が表示されます。
 
-次に、学習前のモデルで実際に生成します。
+次に、初期値のままのモデルを `untrained` として作り、学習前でも文章生成の処理が動くことを確かめます。
 
-**`main.py` を次の内容にして実行します。**
+**`1_12.py` の末尾に次を追記し、同じコマンドで実行します。**
 
 ```python
-import torch
 from tiny_gpt.config import Config
 from tiny_gpt.generate import generate
 from tiny_gpt.model import TinyGPT
 from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
 
+tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
 config = Config()
 torch.manual_seed(config.seed)
-tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
-model = TinyGPT(tokenizer.vocab_size, config)
-print("sampling:", generate(model, tokenizer, "日本の首都は", 20))
-print("greedy:", generate(model, tokenizer, "日本の首都は", 20, method="greedy"))
+untrained = TinyGPT(tokenizer.vocab_size, config)
+print("sampling:", generate(untrained, tokenizer, "日本の首都は", 20))
+print("greedy:", generate(untrained, tokenizer, "日本の首都は", 20, method="greedy"))
 ```
 
 手元では次のようになりました。
@@ -2095,13 +2180,20 @@ validationを使って勾配を計算したり、パラメータを更新した�
 trainから作った語彙をモデルと組にして保存するため、**`tokenizer.py` の `Tokenizer` に `save` を追加します。**
 
 ```python
+class Tokenizer:
+    ...
+
+    # --- 追加: Tokenizerクラス内 ---
+
     def save(self, path: Path) -> None:
         path.write_text(json.dumps(self.tokens, ensure_ascii=False), encoding="utf-8")
 ```
 
-次に、生成と結果の保存に使うモジュールを読み込みます。**`train.py` のimportを次の内容に置き換えます。**
+次に、生成と結果の保存に使うモジュールを読み込みます。**`train.py` のimport部分を次のように変更します。**
 
 ```python
+# --- 差し替え: train.pyのimport部分を以下に ---
+
 import json
 import platform
 import time
@@ -2232,7 +2324,7 @@ def run(config: Config) -> None:
 
 `config.py` の `steps` を20、`run_name` を `"part1-smoke"` に変えます。
 
-**`main.py` を次の内容にします。**
+**`1_13.py` を次の内容で作成します。** `run` が学習前後の比較と結果の保存を行います。
 
 ```python
 from tiny_gpt.config import Config
@@ -2242,7 +2334,7 @@ run(Config())
 ```
 
 ```bash
-uv run python main.py
+uv run python 1_13.py
 ```
 
 パラメータ数、step 0とstep 20のloss、学習前後の生成が表示されることを確認します。`runs/part1-smoke/` に `metrics.json`・`model.pt`・`tokenizer.json`・`loss.png` ができていれば、一連の処理がつながっています。
@@ -2309,16 +2401,24 @@ Apple M5 ProのCPU、Python 3.14.7・PyTorch 2.14.0・macOS 26.6で実行した�
 
 `metrics.json` の `after` 内にある同じpromptの `sampling` と `greedy` を比較してください。モデルのパラメータは同じです。違うのはtokenの選び方だけです。
 
-次に、同じ学習済みモデルでtemperatureを変えます。`run` の `after = collect_generations(...)` の直後へ次を追加します。
+次に、同じ学習済みモデルでtemperatureを変えます。**`train.py` の `run` に、temperatureを変えて生成する処理を追加します。** 追加先は `after = collect_generations(...)` の直後です。
 
 ```python
-for temperature in (0.7, 1.0, 1.3):
-    text = generate(
-        model, tokenizer, "プログラミングを学ぶには、", 80,
-        temperature=temperature, seed=100,
-    )
-    print("temperature:", temperature)
-    print(text)
+def run(config: Config) -> None:
+    ...
+    after = collect_generations(model, tokenizer, prompts)
+
+    # --- 追加: 学習後の生成の直後 ---
+
+    for temperature in (0.7, 1.0, 1.3):
+        text = generate(
+            model, tokenizer, "プログラミングを学ぶには、", 80,
+            temperature=temperature, seed=100,
+        )
+        print("temperature:", temperature)
+        print(text)
+
+    ...
 ```
 
 パラメータは同じでも候補の選び方によって文章が変わります。

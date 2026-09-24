@@ -16,10 +16,29 @@ FineWeb-2 Edu Japaneseから1万文書を固定し、trainの9,000文書に出�
 
 保存したデータは次回もそのまま使います。取得条件・文書分割・SHA-256は `dataset-manifest.json` に記録しています。
 
+## 各節の動作確認・実験を試す
+
+`1_2.py`〜`1_12.py` に各節の確認コードがあります。データを用意した後、試したい節のファイルを実行してください。
+
+```bash
+uv run --frozen python 1_2.py
+uv run --frozen python 1_5.py
+```
+
+どのファイルも単独で実行できます。1.11は100回の学習を行い、結果はメモリ上に保持します。1.12は未学習モデルで生成を試します。
+
+`tiny_gpt/` は完成版なので、1.3〜1.5ではその節の計算だけを取り出すため、本文と呼び出し方を変えています。
+
+| ファイル | 完成版での確認方法 |
+|---|---|
+| `1_3.py` | `model.token_embedding(ids)` でToken Embeddingだけを通す |
+| `1_4.py` | tokenと位置のEmbeddingを直接足して比較する |
+| `1_5.py` | Q・K・Vを作り、`scaled_attention(..., causal=False)` でMaskなしのAttentionを計算する |
+
 ## 学習前後を比較する
 
 ```bash
-uv run --frozen python main.py
+uv run --frozen python 1_13.py
 ```
 
 標準は1層・1ヘッド、`d_model=128`、context length 128、バッチサイズ16、語彙4,052、約126万パラメータです。10,000回更新し、6つの同じpromptで学習前後のsampling・greedyを比べます。
