@@ -9,21 +9,20 @@
 ```bash
 uv sync --python 3.14.7 --frozen
 uv run --frozen python prepare_data.py
-uv run --frozen python -m tiny_gpt.tokenizer
-uv run --frozen python -m tiny_gpt.preview
+uv run --frozen python preview.py
 ```
 
-FineWeb-2 Edu Japaneseから1万文書を固定し、trainの9,000文書からBPEの語彙と分割規則を作ります。GPTの重みはまだ学習していません。「プログラミングを学ぶには、」の続きを生成し、日本語の断片がどう並ぶかを見てください。
+FineWeb-2 Edu Japaneseから1万文書を固定し、trainの9,000文書に出てくる文字を語彙にします。GPTの重みはまだ学習していません。「プログラミングを学ぶには、」の続きを生成し、文字がどう並ぶかを見てください。
 
-保存したデータとTokenizerは次回もそのまま使います。取得条件・文書分割・SHA-256は `dataset-manifest.json` に記録しています。
+保存したデータは次回もそのまま使います。取得条件・文書分割・SHA-256は `dataset-manifest.json` に記録しています。
 
 ## 学習前後を比較する
 
 ```bash
-uv run --frozen python -m tiny_gpt.train
+uv run --frozen python main.py
 ```
 
-標準は1層・1ヘッド、`d_model=128`、context length 128、バッチサイズ16、語彙8,192、約232万パラメータです。10,000回更新し、6つの同じpromptで学習前後のsampling・greedyを比べます。
+標準は1層・1ヘッド、`d_model=128`、context length 128、バッチサイズ16、語彙4,052、約126万パラメータです。10,000回更新し、6つの同じpromptで学習前後のsampling・greedyを比べます。
 
 設定は `tiny_gpt/config.py` にあります。短い動作確認では `steps` を20、`run_name` を `"part1-smoke"` にします。各実行は同じseedで新しいモデルを初期化します。
 
@@ -34,7 +33,7 @@ uv run --frozen python -m tiny_gpt.train
 | `metrics.json` | 実験条件、パラメータ数、loss、時間、学習前後の生成 |
 | `loss.png` | train/validation lossの推移 |
 | `model.pt` | 学習済みパラメータとモデル設定 |
-| `tokenizer.json` | そのモデルで使った語彙と分割規則 |
+| `tokenizer.json` | そのモデルで使った語彙（token IDの順に並べた文字の一覧） |
 
 モデルとTokenizerは組にして使います。`model.pt` は生成・追加学習の出発点となるパラメータです。optimizerの状態を含む完全な学習再開用checkpointではありません。
 

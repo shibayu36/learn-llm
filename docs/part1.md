@@ -35,29 +35,28 @@ flowchart TD
 
 最初に、これから作るGPTを動かしてみましょう。参照コードには完成した計算の仕組みが入っていますが、パラメータはまだ学習していない初期値です。
 
-このPartでは日本語の文章を使います。モデルが扱う単位を **token** と呼びます。1tokenは1文字や1単語とは限らず、たとえば「日本の首都は東京です。」は次のように分かれます。
+このPartでは日本語の文章を使います。モデルが扱う単位を **token** と呼びます。この教材では1文字を1tokenにし、「日本の首都は東京です。」は次のように分かれます。
 
 ```text
-日本の | 首都 | は | 東京 | です | 。
+日 | 本 | の | 首 | 都 | は | 東 | 京 | で | す | 。
 ```
 
-この分割にはよく現れる並びをまとめるBPEという方式を使います。仕組みは1.2で説明します。
+実際のGPTでは1tokenが単語や文字列の一部になることもあります。仕組みは1.2で説明します。
 
-uvが使える環境でこのリポジトリのルートから次のコマンドを実行します。最初の2行で日本語の1万文書を保存し、tokenの語彙と分割規則を作ります。ここで保存されるデータは参照コード側の `sample/data/` に入ります。自分の作業用ディレクトリには、1.2で同じ手順で作ります。
+uvが使える環境でこのリポジトリのルートから次のコマンドを実行します。1行目で日本語の1万文書を保存し、2行目で文字の語彙を作ってから学習前のGPTで生成します。ここで保存されるデータは参照コード側の `sample/data/` に入ります。自分の作業用ディレクトリには、1.2で同じ手順で作ります。
 
 ```bash
 uv run --frozen --directory sample python prepare_data.py
-uv run --frozen --directory sample python -m tiny_gpt.tokenizer
-uv run --frozen --directory sample python -m tiny_gpt.preview
+uv run --frozen --directory sample python preview.py
 ```
 
 GPTのパラメータはまだ学習していません。「プログラミングを学ぶには、」という書きかけの文を渡すと、次のような続きを生成します。以下は実行結果の抜粋です。
 
 ```text
-プログラミングを学ぶには、ユーザーはされたマイクロ買自体....面積どのような通しを行プラスブック学構成全てが残望�検査を�消化の活用録�アイデア大切とされているログレッジを�
+プログラミングを学ぶには、息話关仰ι句巳ֹ竿و肉膨櫻逮討際狼諏恕絆引当赦緊砺瀉刈徨͡捨城孙繕盧喝≡鑞じこ劉क堀屏鬱芭唐汐政ي夷帳影廠虚代
 ```
 
-日本語の断片は出ますが、意味の通る文章にはなっていません。Tokenizerは「ユーザー」などの断片をすでに語彙として持っていますが、GPTはそれらをどう並べるかをまだ学んでいないためです。`�` はbyte単位のtokenが正しい文字にならない組み合わせで出た部分です。
+出てくるのはどれもtrainの文書にある文字ですが、意味の通る並びにはなっていません。GPTはどの文字の後にどの文字が続きやすいかをまだ学んでおらず、語彙の文字をほぼでたらめに選んでいるためです。
 
 それでも内部では次のtokenの確率を計算して1つ選び、入力へ追加する処理が動いています。
 
@@ -101,12 +100,12 @@ FineWeb-2 Edu Japaneseの `small_tokens_cleaned` から1万文書を取り出し
 | 一度に読む長さ `context_length` | 128token |
 | MLPの中間次元 | 512 |
 | 一度に処理する系列数 `batch_size` | 16 |
-| BPEの語彙数 | 8,192 |
+| 語彙数 | 4,052 |
 | train / validation | 9,000文書 / 1,000文書 |
 | 更新回数 | 10,000回 |
-| パラメータ数 | 2,320,256（約232万） |
+| パラメータ数 | 1,256,276（約126万） |
 
-まず20回更新して一連の処理を確認し、その後で10,000回の更新を実行します。CPUでの学習は5〜10分程度が目安です。
+まず20回更新して一連の処理を確認し、その後で10,000回の更新を実行します。10,000回の更新は5〜10分程度で終わります。
 
 ### 作業用ディレクトリの構成
 
@@ -116,16 +115,16 @@ FineWeb-2 Edu Japaneseの `small_tokens_cleaned` から1万文書を取り出し
 tiny-gpt-handson/
 ├── pyproject.toml
 ├── prepare_data.py
+├── main.py               節ごとに書き換えて実行する確認・学習の入口
 ├── data/
 │   └── fineweb-japanese-10k/
 │       ├── train.jsonl
 │       ├── validation.jsonl
-│       ├── manifest.json  取得条件とデータのハッシュ
-│       └── tokenizer.json 語彙と分割規則
+│       └── manifest.json  取得条件とデータのハッシュ
 ├── tiny_gpt/
 │   ├── __init__.py       空のファイル
 │   ├── config.py        実験条件
-│   ├── tokenizer.py     BPEの語彙作成とIDへの変換
+│   ├── tokenizer.py     文字の語彙とIDへの変換
 │   ├── dataset.py       文書のID化と入力・正解の組
 │   ├── model.py         GPTの計算
 │   ├── generate.py      次token予測の繰り返し
@@ -136,7 +135,7 @@ tiny-gpt-handson/
 
 `model.py` は部品を順に追加し、1.10でモデル全体がつながります。学習コマンドを実行するのは1.13です。
 
-途中の実験で使う、保存先を示していない確認コードは、作業用ディレクトリの `check.py` に保存して `uv run python check.py` で実行します。次の実験では内容を置き換えてください。
+各節の動作確認・実験のコードは、作業用ディレクトリの `main.py` に保存し `uv run python main.py` で実行します。次の節に進むときは中身を置き換えてください。`tiny_gpt/` の各ファイルには部品だけを置き、実行の入口は `main.py` に集約します。最後の1.13では、`main.py` は学習を呼び出すだけになります。
 
 ### uvで環境を用意する
 
@@ -160,7 +159,6 @@ dependencies = [
     "matplotlib==3.11.2",
     "huggingface-hub==1.32.0",
     "pyarrow==25.0.1",
-    "tokenizers==0.23.2",
 ]
 ```
 
@@ -215,7 +213,7 @@ class Config:
 | `B` | バッチサイズ。一度に処理する系列の数 | 16 |
 | `T` | 1系列に含まれるtoken数 | 128 |
 | `D` | 1tokenを表すベクトルの次元 | 128 |
-| `vocab_size` | 語彙に含まれるtokenの数 | 8,192 |
+| `vocab_size` | 語彙に含まれるtokenの数 | 4,052 |
 
 `[B, T, D]` は「B個の系列があり、それぞれのT個の位置にD次元のベクトルがある」という意味です。最初の設定では `T` も `D` も128ですが、別の軸です。
 
@@ -278,26 +276,28 @@ Tokenizerで文字列をtokenへ分割し、それぞれを整数IDへ変換し�
 
 ### 仕組み
 
-今回のTokenizerで「日本の首都は東京です。」を分割すると、6個のtokenになります。区切りを `/` で表すと、入力と正解の対応は次のとおりです。
+今回のTokenizerは1文字を1tokenにします。「日本の首都は東京です。」は11個のtokenになります。区切りを `/` で表すと、入力と正解の対応は次のとおりです。
 
 ```text
-元の列： 日本の / 首都 / は   / 東京 / です / 。
-入力 x： 日本の / 首都 / は   / 東京 / です
-正解 y： 首都   / は   / 東京 / です / 。
+元の列： 日 / 本 / の / 首 / 都 / は / 東 / 京 / で / す / 。
+入力 x： 日 / 本 / の / 首 / 都 / は / 東 / 京 / で / す
+正解 y： 本 / の / 首 / 都 / は / 東 / 京 / で / す / 。
 
-この1系列では：x.shape = [T]、y.shape = [T]、T = 5
+この1系列では：x.shape = [T]、y.shape = [T]、T = 10
 B系列をまとめると：x.shape = [B, T]、y.shape = [B, T]
 ```
 
-位置0では「日本の」から「首都」、位置1では「日本の／首都」から「は」を予測します。`y` は「一度に生成すべき別の文章」ではなく、各位置に対応する正解を並べたものです。
+位置0では「日」から「本」、位置1では「日／本」から「の」を予測します。`y` は「一度に生成すべき別の文章」ではなく、各位置に対応する正解を並べたものです。
 
-**BPEはよく現れる隣接ペアを繰り返しまとめ、語彙と分割規則を作る方式です。** 今回はUTF-8のbyteを出発点にし、8,192種類のtokenを用意します。よく現れる語句を少ないtokenで表せる一方、見たことのない文字もbyteへ分解して扱えます。1tokenが単語や文字の途中で切れる場合もあります。
+**語彙はtrainの文書に出てきた文字を並べた表です。** 文字をコード順に並べ、表の添字をtoken IDにします。今回のデータには4,050種類の文字が出てきます。実際のGPTは、よく現れる文字の並びを1つのtokenにまとめるBPEという方式を使い、語彙も数万から十数万あります。仕組みの理解には1文字単位で十分なので、この教材では文字単位のまま進めます。
+
+語彙には文字とは別に、特別なtokenを2つ予約します。文書の終わりを示す専用の終端token（EOS）と、語彙にない文字を表すtoken（UNK）です。validationにはtrainに出ない文字が少しあり、その文字だけUNKに置き換えます。
 
 Tokenizerの語彙を作ることとGPTを学習させることは別の処理です。
 
 | 処理 | 決まるもの | この後の扱い |
 |---|---|---|
-| BPEの語彙作成 | 文字列の分割規則とtoken ID | 固定して使う |
+| 語彙作成 | 文字とtoken IDの対応 | 固定して使う |
 | GPTの学習 | EmbeddingやAttentionなどのパラメータ | 次token予測の誤差から更新する |
 
 語彙の作成にはtrainの文書だけを使います。validationはGPTのパラメータ更新にも語彙作成にも使いません。
@@ -312,7 +312,7 @@ uv run python prepare_data.py
 
 **trainはパラメータ更新に使う文書、validationは更新に使わず予測を測る文書**です。文書単位で分けることで同じ文書の前半がtrain、後半がvalidationに入ることを防ぎます。
 
-次に、BPEの語彙を作り、文字列とID列を変換するコードを書きます。ここはHugging Face Tokenizersを使い、Transformerの計算はこの後で実装します。
+次に、文字の語彙を作り、文字列とID列を変換するコードを書きます。
 
 **保存先：`tiny_gpt/tokenizer.py`。**
 
@@ -320,14 +320,16 @@ uv run python prepare_data.py
 import json
 from pathlib import Path
 
-from tokenizers import Tokenizer as BpeTokenizer
-from tokenizers import decoders, models, pre_tokenizers, trainers
-
 
 DATA_DIR = Path("data/fineweb-japanese-10k")
-TOKENIZER_PATH = DATA_DIR / "tokenizer.json"
-EOS_TOKEN = "<|endoftext|>"
-VOCAB_SIZE = 8192
+# 文字とは別に語彙の先頭へ予約する特別なtoken。文字列は表示用の名前で、
+# 文章の中には現れない。
+# EOS: 文書の終わり。文書の末尾にだけ付ける。GPTはこれも予測対象として学習し、
+#      生成時に選んだら文章を終了する。
+# UNK: 語彙にない文字。trainに出なかった文字がvalidationやpromptに現れたとき、
+#      その文字だけこのtokenに置き換える。
+EOS_TOKEN = "<eos>"
+UNK_TOKEN = "<unk>"
 
 
 def read_texts(path: Path) -> list[str]:
@@ -339,69 +341,65 @@ def read_texts(path: Path) -> list[str]:
     return texts
 
 
-def train_tokenizer(texts: list[str], vocab_size: int) -> BpeTokenizer:
-    tokenizer = BpeTokenizer(models.BPE())
-    # 256種類のbyteを出発点にするので、学習にない文字もID列へ変換できる。
-    tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
-    tokenizer.decoder = decoders.ByteLevel()
-    trainer = trainers.BpeTrainer(
-        vocab_size=vocab_size,
-        min_frequency=2,
-        initial_alphabet=pre_tokenizers.ByteLevel.alphabet(),
-        special_tokens=[EOS_TOKEN],
-        show_progress=False,
-    )
-    tokenizer.train_from_iterator(texts, trainer=trainer, length=len(texts))
-    return tokenizer
-
-
 class Tokenizer:
-    def __init__(self, path: Path = TOKENIZER_PATH) -> None:
-        self.backend: BpeTokenizer = BpeTokenizer.from_file(str(path))
-        self.vocab_size: int = self.backend.get_vocab_size()
-        eos_id = self.backend.token_to_id(EOS_TOKEN)
-        if eos_id is None:
-            raise ValueError("文書終端tokenがありません")
-        self.eos_id: int = eos_id
+    def __init__(self, tokens: list[str]) -> None:
+        # ID順に並べたtokenの表。token IDはこの表の添字。
+        self.tokens: list[str] = tokens
+        self.token_to_id: dict[str, int] = {}
+        for token_id, token in enumerate(tokens):
+            self.token_to_id[token] = token_id
+        self.vocab_size: int = len(tokens)
+        self.eos_id: int = self.token_to_id[EOS_TOKEN]
+        self.unk_id: int = self.token_to_id[UNK_TOKEN]
 
-    def encode(self, text: str) -> list[int]:
-        return self.backend.encode(text).ids
+    @classmethod
+    def from_texts(cls, texts: list[str]) -> "Tokenizer":
+        chars: set[str] = set()
+        for text in texts:
+            chars.update(text)
+        return cls([EOS_TOKEN, UNK_TOKEN] + sorted(chars))
 
-    def decode(self, token_ids: list[int]) -> str:
-        return self.backend.decode(token_ids)
+    @classmethod
+    def load(cls, path: Path) -> "Tokenizer":
+        return cls(json.loads(path.read_text(encoding="utf-8")))
 
     def save(self, path: Path) -> None:
-        self.backend.save(str(path))
+        path.write_text(json.dumps(self.tokens, ensure_ascii=False), encoding="utf-8")
 
+    def encode(self, text: str) -> list[int]:
+        token_ids: list[int] = []
+        for char in text:
+            token_ids.append(self.token_to_id.get(char, self.unk_id))
+        return token_ids
 
-def main() -> None:
-    if not TOKENIZER_PATH.exists():
-        # validationの内容を使わず、trainだけから分割規則と語彙を作る。
-        texts = read_texts(DATA_DIR / "train.jsonl")
-        backend = train_tokenizer(texts, VOCAB_SIZE)
-        backend.save(str(TOKENIZER_PATH))
-    tokenizer = Tokenizer()
-    text = "日本の首都は東京です。"
-    token_ids = tokenizer.encode(text)
-    print("語彙数:", tokenizer.vocab_size)
-    print("入力:", text)
-    print("token ID:", token_ids)
-    print("復元:", tokenizer.decode(token_ids))
-
-
-if __name__ == "__main__":
-    main()
+    def decode(self, token_ids: list[int]) -> str:
+        chars: list[str] = []
+        for token_id in token_ids:
+            chars.append(self.tokens[token_id])
+        return "".join(chars)
 ```
 
-`train_tokenizer` が語彙と分割規則を作り、`Tokenizer` が保存済みの規則で変換します。
+`Tokenizer.from_texts` がtrainの文字から語彙を作り、`encode` と `decode` が文字列とID列を変換します。`save` と `load` は学習したモデルと語彙を組にして保存するためのもので、1.13で使います。
 
-次のコマンドで語彙を作ります。すでに `tokenizer.json` がある場合は保存した規則を使います。
+**`main.py` を次の内容にして実行します。** 語彙はtrainの文書から毎回作ります。1秒もかからず、同じ文書からは同じ語彙ができます。
+
+```python
+from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
+
+tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
+text = "日本の首都は東京です。"
+token_ids = tokenizer.encode(text)
+print("語彙数:", tokenizer.vocab_size)
+print("入力:", text)
+print("token ID:", token_ids)
+print("復元:", tokenizer.decode(token_ids))
+```
 
 ```bash
-uv run python -m tiny_gpt.tokenizer
+uv run python main.py
 ```
 
-続いて、各文書をID列へ変換します。文書の末尾には専用の終端token（EOS）を付けます。GPTはこのtokenも予測対象として学習し、生成時に選んだら文章を終了します。
+続いて、各文書をID列へ変換します。文書の末尾にはEOSを付けます。
 
 文書をつないだtoken列から連続する範囲を切り出します。この範囲を「窓」と呼びます。1組の入力・正解を作るには `T+1` tokenが必要です。先頭T個を入力、その1つ先からT個を正解にします。
 
@@ -430,12 +428,6 @@ def load_data(
     validation_texts = read_texts(DATA_DIR / "validation.jsonl")
     train_ids = encode_documents(train_texts, tokenizer)
     validation_ids = encode_documents(validation_texts, tokenizer)
-
-    if len(train_ids) <= config.context_length:
-        raise ValueError("trainデータがcontext_lengthに対して短すぎます")
-    if len(validation_ids) <= config.context_length:
-        raise ValueError("validationデータがcontext_lengthに対して短すぎます")
-
     return train_ids, validation_ids
 
 
@@ -476,9 +468,9 @@ def make_batch(
 
 ```python
 import torch
-from tiny_gpt.tokenizer import Tokenizer
+from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
 
-tokenizer = Tokenizer()
+tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
 text = "日本の首都は東京です。"
 ids = torch.tensor(tokenizer.encode(text), dtype=torch.long)
 x = ids[:-1]
@@ -490,9 +482,9 @@ print(x.shape, y.shape)
 assert tokenizer.decode(tokenizer.encode(text)) == text
 ```
 
-入力は「日本の首都は東京です」、正解は「首都は東京です。」になり、shapeはどちらも `[5]` です。文字数ではなくtoken数で切り出している点に注目してください。
+入力は「日本の首都は東京です」、正解は「本の首都は東京です。」になり、shapeはどちらも `[10]` です。
 
-Tokenizerはbyte単位の断片も持っているため、1tokenだけをdecodeすると `�` になる場合があります。文章を復元するときはID列をまとめてdecodeします。
+trainに出てこない文字を `encode` するとUNKのIDになり、`decode` すると `<unk>` と表示されます。
 
 ### この節で理解したこと
 
@@ -1119,19 +1111,16 @@ Embeddingの重み `[vocab_size, D]` とLM Headの重み `[vocab_size, D]` を�
 import torch
 from tiny_gpt.config import Config
 from tiny_gpt.model import TinyGPT
-from tiny_gpt.tokenizer import Tokenizer
+from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
 
 torch.manual_seed(42)
 config = Config()
-tokenizer = Tokenizer()
+tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
 model = TinyGPT(tokenizer.vocab_size, config)
 model.eval()
 
 first_ids = tokenizer.encode("日本の首都は東京です。")
-second_ids = first_ids.copy()
-# 文字列を編集して再分割すると、前半のtokenまで変わり得るのでID列を直接変える。
-second_ids[3] = tokenizer.encode("猫")[0]
-second_ids[4] = tokenizer.encode("犬")[0]
+second_ids = tokenizer.encode("日本の猫犬は東京です。")
 first = torch.tensor([first_ids], dtype=torch.long)
 second = torch.tensor([second_ids], dtype=torch.long)
 
@@ -1148,7 +1137,7 @@ for parameter in model.parameters():
 print("パラメータ数:", parameter_count)
 ```
 
-shapeは `[1, 6, 8192]` です。`torch.no_grad()` の範囲では後の勾配計算に備えた記録を作りません。`model.eval()` は評価モードへの切り替えです。このモデルにはDropoutなどがありませんが、勾配計算の無効化とは別の役割であることを押さえておきましょう。
+shapeは `[1, 11, 4052]` です。`torch.no_grad()` の範囲では後の勾配計算に備えた記録を作りません。`model.eval()` は評価モードへの切り替えです。このモデルにはDropoutなどがありませんが、勾配計算の無効化とは別の役割であることを押さえておきましょう。
 
 1.6のAttention weightの確認と合わせて、未来の情報が出力へ影響しないことを確かめられます。
 
@@ -1202,7 +1191,6 @@ Backpropagationが計算するのは「各パラメータを微小に変えた�
 **保存先：`tiny_gpt/train.py`。この節のコードを順に保存し、1.13で実行処理を追加します。**
 
 ```python
-import hashlib
 import json
 import platform
 import time
@@ -1215,7 +1203,7 @@ from torch.nn import functional as F
 from tiny_gpt.config import Config
 from tiny_gpt.dataset import load_data, make_batch
 from tiny_gpt.model import TinyGPT
-from tiny_gpt.tokenizer import DATA_DIR, TOKENIZER_PATH, Tokenizer, read_texts
+from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
 
 
 def batch_loss(
@@ -1397,13 +1385,6 @@ def generate(
     temperature: float = 0.8,
     seed: int = 100,
 ) -> str:
-    if not prompt:
-        raise ValueError("promptには1文字以上を指定してください")
-    if method not in ("greedy", "sampling"):
-        raise ValueError("methodはgreedyまたはsamplingを指定してください")
-    if temperature <= 0:
-        raise ValueError("temperatureは正の値を指定してください")
-
     ids = torch.tensor([tokenizer.encode(prompt)], dtype=torch.long, device=device)
     generator = torch.Generator(device="cpu")
     generator.manual_seed(seed)
@@ -1551,7 +1532,8 @@ def collect_generations(
 def run(config: Config) -> None:
     torch.manual_seed(config.seed)
     device = select_device()
-    tokenizer = Tokenizer()
+    # validationの内容を使わず、trainの文字だけから語彙を作る。
+    tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
     train_ids, validation_ids = load_data(tokenizer, config)
     model = TinyGPT(tokenizer.vocab_size, config).to(device)
 
@@ -1588,7 +1570,6 @@ def run(config: Config) -> None:
         "device": str(device),
         "parameters": parameter_count,
         "vocab_size": tokenizer.vocab_size,
-        "tokenizer_sha256": hashlib.sha256(TOKENIZER_PATH.read_bytes()).hexdigest(),
         "dataset": manifest,
         "train_tokens": len(train_ids),
         "validation_tokens": len(validation_ids),
@@ -1610,13 +1591,9 @@ def run(config: Config) -> None:
         "config": vars(config),
     }, output_dir / "model.pt")
     save_loss_curve(history, output_dir / "loss.png")
-
-
-if __name__ == "__main__":
-    run(Config())
 ```
 
-`vars(config)` は設定オブジェクトの属性を辞書として取り出します。`state_dict()` はモデルの学習済みパラメータを取り出します。ここでは生成と後のFine-tuning（学習済みパラメータの追加学習）に使うため、`model.pt` にパラメータと設定、`tokenizer.json` に語彙と分割規則を保存します。この2つは組にして使います。別のTokenizerで同じIDが別のtokenを指すと、モデルに違う入力を渡してしまうためです。optimizerの状態を保存していないため、学習途中から更新履歴まで完全に再開するcheckpointではありません。
+`vars(config)` は設定オブジェクトの属性を辞書として取り出します。`state_dict()` はモデルの学習済みパラメータを取り出します。ここでは生成と後のFine-tuning（学習済みパラメータの追加学習）に使うため、`model.pt` にパラメータと設定、`tokenizer.json` に語彙を保存します。この2つは組にして使います。別のTokenizerで同じIDが別のtokenを指すと、モデルに違う入力を渡してしまうためです。optimizerの状態を保存していないため、学習途中から更新履歴まで完全に再開するcheckpointではありません。
 
 ### 実験 — 学習で予測がどう変わったかを比べる
 
@@ -1624,10 +1601,19 @@ if __name__ == "__main__":
 
 #### まず短く動かす
 
-`config.py` の `steps` を20、`run_name` を `"part1-smoke"` に変え、実行します。
+`config.py` の `steps` を20、`run_name` を `"part1-smoke"` に変えます。
+
+**`main.py` を次の内容にします。**
+
+```python
+from tiny_gpt.config import Config
+from tiny_gpt.train import run
+
+run(Config())
+```
 
 ```bash
-uv run python -m tiny_gpt.train
+uv run python main.py
 ```
 
 パラメータ数、step 0とstep 20のloss、学習前後の生成が表示されることを確認します。`runs/part1-smoke/` に `metrics.json`・`model.pt`・`tokenizer.json`・`loss.png` ができていれば、一連の処理がつながっています。
@@ -1652,12 +1638,12 @@ seedを固定しても、PyTorchのバージョンやCPU・MPSの違いをまた
 
 #### 参考：この設定での実行結果
 
-Apple M5 ProのMPS、Python 3.14.7・PyTorch 2.14.0・macOS 26.6で実行した結果です。パラメータ数は2,320,256で、10,000回の更新と定期評価に約98.5秒かかりました。同じ設定をCPU・4スレッドで実行した場合は約305.9秒（約5.1分）でした。データ取得・語彙作成・文章生成の時間は含みません。
+Apple M5 Pro、Python 3.14.7・PyTorch 2.14.0・macOS 26.6で実行した結果です。パラメータ数は1,256,276で、10,000回の更新と定期評価に約69秒かかりました。データ取得・語彙作成・文章生成の時間は含みません。
 
 | 指標 | 学習前 | 10,000回の更新後 |
 |---|---:|---:|
-| train loss | 9.1897 | 5.5719 |
-| validation loss | 9.1951 | 5.7454 |
+| train loss | 8.5125 | 3.5022 |
+| validation loss | 8.5111 | 3.5536 |
 
 ![10,000回の更新に伴うtrain lossとvalidation lossの変化](images/part1-loss.png)
 
@@ -1665,18 +1651,16 @@ Apple M5 ProのMPS、Python 3.14.7・PyTorch 2.14.0・macOS 26.6で実行した�
 
 ```text
 学習前：
-プログラミングを学ぶには、ユーザーはされたマイクロ買自体....面積どのような通しを行プラスブック学構成全てが残望�検査を�消化の活用録�アイデア大切とされているログレッジを�
+プログラミングを学ぶには、息話关仰ι句巳ֹ竿و肉膨櫻逮討際狼諏恕絆引当赦緊砺瀉刈徨͡捨城孙繕盧喝≡鑞じこ劉क堀屏鬱芭唐汐政ي夷帳影廠虚代
 
 学習後：
-プログラミングを学ぶには、ユーザーは増えていきます。
-
-そのため、また「プラス」で、
-このように望まれ、今夏を避けるため、かつ、データ統合する業者から、
+プログラミングを学ぶには、イラスを行うこ。
+今後2 5、次世代に入り当たら安い色の取ることもいいます。これら水道府県などはります。しに代謝金を未満の状況ではあります。
 ```
 
-**断片が並んでいた出力に「増えていきます」「そのため」のような文らしいつながりが現れました。** Tokenizerは学習前後で同じです。GPTのパラメータを更新したことで次に続くtokenの選ばれ方が変わっています。
+**でたらめな文字の並びだった出力に、「次世代に入り」「ことができます」「状況ではあります」のような語句や文末のつながりが現れました。** ひらがな・漢字・句読点の使い分けも文字単位で学んでいます。Tokenizerは学習前後で同じです。GPTのパラメータを更新したことで次に続くtokenの選ばれ方が変わっています。
 
-一方プログラミングの学び方を説明する文章にはなっていません。greedyでは「また、」などの繰り返しも見られました。語句のつながりが整うことと話題を保って説明できることを分けて観察しましょう。
+一方プログラミングの学び方を説明する文章にはなっていません。greedyでは「そのために、そのために、」という繰り返しが続きました。語句のつながりが整うことと話題を保って説明できることを分けて観察しましょう。
 
 固定した4つのpromptとvalidationの2文書の冒頭について、学習前後のsampling・greedyを記録しています。全条件と出力は `sample/results/japanese-10k.json` にあります。
 

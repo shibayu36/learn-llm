@@ -63,6 +63,7 @@
 | prompt | 入力文（生成の起点の意味で） | 生成の起点として渡す入力。1.12で定義。「入力文」は学習データの文にだけ使う |
 | 語彙、語彙数 | vocab | 識別子は `vocab_size`。Value の `V` と区別する |
 | EOS、終端token | | 初出で「専用の終端token（EOS）」と併記 |
+| UNK | 未知語token | 初出で「語彙にない文字を表すtoken（UNK）」と併記 |
 | seed | シード | |
 | Tensor、shape | テンソル | |
 

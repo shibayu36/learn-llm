@@ -20,12 +20,6 @@ def load_data(
     validation_texts = read_texts(DATA_DIR / "validation.jsonl")
     train_ids = encode_documents(train_texts, tokenizer)
     validation_ids = encode_documents(validation_texts, tokenizer)
-
-    if len(train_ids) <= config.context_length:
-        raise ValueError("trainデータがcontext_lengthに対して短すぎます")
-    if len(validation_ids) <= config.context_length:
-        raise ValueError("validationデータがcontext_lengthに対して短すぎます")
-
     return train_ids, validation_ids
 
 

@@ -14,13 +14,6 @@ def generate(
     temperature: float = 0.8,
     seed: int = 100,
 ) -> str:
-    if not prompt:
-        raise ValueError("promptには1文字以上を指定してください")
-    if method not in ("greedy", "sampling"):
-        raise ValueError("methodはgreedyまたはsamplingを指定してください")
-    if temperature <= 0:
-        raise ValueError("temperatureは正の値を指定してください")
-
     ids = torch.tensor([tokenizer.encode(prompt)], dtype=torch.long, device=device)
     generator = torch.Generator(device="cpu")
     generator.manual_seed(seed)

@@ -1,6 +1,4 @@
 import unittest
-import tempfile
-from pathlib import Path
 
 import torch
 from torch import nn
@@ -10,7 +8,7 @@ from tiny_gpt.config import Config
 from tiny_gpt.dataset import encode_documents, make_batch
 from tiny_gpt.generate import generate
 from tiny_gpt.model import LayerNorm, TinyGPT, scaled_attention
-from tiny_gpt.tokenizer import Tokenizer, train_tokenizer
+from tiny_gpt.tokenizer import Tokenizer
 
 
 class TinyGPTTests(unittest.TestCase):
@@ -21,16 +19,18 @@ class TinyGPTTests(unittest.TestCase):
         self.config.d_model = 16
         self.config.context_length = 8
         self.config.batch_size = 2
-        self.directory = tempfile.TemporaryDirectory()
-        self.addCleanup(self.directory.cleanup)
-        path = Path(self.directory.name) / "tokenizer.json"
-        backend = train_tokenizer(["猫は眠っています。", "犬も眠っています。"], 300)
-        backend.save(str(path))
-        self.tokenizer = Tokenizer(path)
+        self.tokenizer = Tokenizer.from_texts(
+            ["猫は眠っています。", "犬も眠っています。", "猫と犬です。"]
+        )
 
-    def test_tokenizer_round_trip_and_unseen_characters(self) -> None:
-        for text in ("猫は眠っています。", "未学習の🦉と𠮷。\nHello!"):
-            self.assertEqual(self.tokenizer.decode(self.tokenizer.encode(text)), text)
+    def test_tokenizer_round_trip(self) -> None:
+        text = "犬は眠っています。"
+        self.assertEqual(self.tokenizer.decode(self.tokenizer.encode(text)), text)
+
+    def test_tokenizer_replaces_unseen_characters(self) -> None:
+        ids = self.tokenizer.encode("猫と🦉")
+        self.assertEqual(ids[-1], self.tokenizer.unk_id)
+        self.assertEqual(self.tokenizer.decode(ids), "猫と<unk>")
 
     def test_documents_have_separate_end_tokens(self) -> None:
         texts = ["猫です。", "犬です。"]

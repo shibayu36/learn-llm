@@ -98,7 +98,7 @@ Python・ライブラリは作成時点の最新安定版を使い、uvで環境
 
 ## Part 1の導入
 
-構成図の直後に、参照コードの未学習GPTで生成する導入を置く。固定した日本語データとBPEの語彙を用意した後、GPTのパラメータを学習する前に意味の通らない続きを体験する。promptは「プログラミングを学ぶには、」とし、同じpromptをPart末尾でも使って学習前後を比較する。Tokenizerの語彙作成とGPTのパラメータ学習を区別する。
+構成図の直後に、参照コードの未学習GPTで生成する導入を置く。固定した日本語データと文字の語彙を用意した後、GPTのパラメータを学習する前に意味の通らない続きを体験する。promptは「プログラミングを学ぶには、」とし、同じpromptをPart末尾でも使って学習前後を比較する。Tokenizerの語彙作成とGPTのパラメータ学習を区別する。
 
 Part 1の操作デモは `docs/demos/part1.html` にまとめる。各デモの学習目的は、この計画の「視覚表現の学習目的」に記録する。
 
@@ -106,19 +106,20 @@ Part 1の操作デモは `docs/demos/part1.html` にまとめる。各デモの�
 
 本文も学習データも日本語とする。Part 1の標準データは `hotchpotch/fineweb-2-edu-japanese` の `small_tokens_cleaned` から固定した1万文書。取得元のrevisionは `180ca004c6a89b590daaad86cb062a07a5353c69`。先頭1万件の既知の重複を除き、空でない異なる本文を1万件選ぶ。seed 42で文書順を並べ替え、train 9,000文書・validation 1,000文書に分ける。JSONLとSHA-256を保存し、以後は同じファイルを使う。
 
-BPEはtrainだけから語彙8,192を作る。1層・1ヘッド・`d_model=128` で2,320,256parameter。10,000回更新した結果、学習前の断片的な出力に、日本語の語句や文末のつながりが現れた。Part 1ではこの変化を体験し、入力の話題を保った文章生成とは区別して観察する。
+Tokenizerは1文字1tokenとし、trainに出てきた4,050文字にEOS・UNKを加えた語彙4,052を使う。BPEはTransformerの理解に必須ではなく、Hugging Face Tokenizersの設定が読み手の負担になるため採用しない。BPEの説明は付録の「Tokenizerの変更」に置く。1層・1ヘッド・`d_model=128` で1,256,276parameter。10,000回更新した結果、学習前のでたらめな文字の並びに、日本語の語句や文末のつながりが現れた。Part 1ではこの変化を体験し、入力の話題を保った文章生成とは区別して観察する。
 
-日本語版は `sample/tiny_gpt/` の標準コードへ統合する。取得は `sample/prepare_data.py`、固定条件は `sample/dataset-manifest.json` に置く。最初のParquetファイル1つだけを取得し、保存済みならハッシュを確認して使う。huggingface-hub 1.32.0・PyArrow 25.0.1・Tokenizers 0.23.2を標準の依存関係にする。
+日本語版は `sample/tiny_gpt/` の標準コードへ統合する。取得は `sample/prepare_data.py`、固定条件は `sample/dataset-manifest.json` に置く。最初のParquetファイル1つだけを取得し、保存済みならハッシュを確認して使う。huggingface-hub 1.32.0・PyArrow 25.0.1を標準の依存関係にする。
 
 | 選択肢 | 利点 | 難点 | 採否 |
 |---|---|---|---|
-| FineWeb-2 Edu Japanese＋BPE | 日本語の生成の変化を読み取れる。数百万parameterで実行できる | データ取得と語彙作成が必要 | 主教材 |
+| FineWeb-2 Edu Japanese＋文字単位 | 日本語の生成の変化を読み取れる。Tokenizerが純Pythonの短い実装で済み、数百万parameter以下で実行できる | データ取得が必要。系列がBPEより約1.8倍長い | 主教材 |
+| FineWeb-2 Edu Japanese＋BPE | 実際のGPTと同じ方式。系列が短い | Hugging Face Tokenizersの設定が読み手の負担になる。byte断片で `�` が出る | 付録で説明 |
 | Tiny Shakespeare＋文字単位 | 取得・Tokenizerの実装が短い | 日本語の読み手が生成の変化を実感しにくい | 初期実験の記録として残す |
 | 自作の規則的な文章 | 小規模で部品の働きを確認しやすい | 自然言語での能力と混同しやすい | 部品の確認・Instruction Tuning |
 
 データ配布元：FineWeb-2 Edu Japanese: https://huggingface.co/datasets/hotchpotch/fineweb-2-edu-japanese
 
-CPUで1実験5〜10分以内を目標とし、長い実験は任意にする。時間は実測して調整する。GPU必須にせず、実行デバイスの既定値はautoとする。MPSが使える場合はMPS、それ以外はCPUをコード内で選び、本文ではデバイス選択の説明や操作を求めない。環境管理・実行にはuvを使う。
+1実験5〜10分以内を目標とし、長い実験は任意にする。GPU必須にせず、実行デバイスはコード内で自動で選ぶ。本文ではデバイスの違いや選択の説明を書かず、所要時間は「5〜10分程度」とだけ示す。環境管理・実行にはuvを使う。
 
 Python・PyTorchなどは作成時点の最新安定版を使う。現在の採用版はPython 3.14.7、PyTorch 2.14.0、Matplotlib 3.11.2。`.python-version` と `uv.lock` に記録して再現できるようにする。
 
@@ -129,10 +130,10 @@ Python・PyTorchなどは作成時点の最新安定版を使う。現在の採�
 | batch size | 16 |
 | MLP中間次元 | 512 |
 | 層・ヘッド数 | 1層・1ヘッド |
-| 語彙数 | 8,192 |
-| パラメータ数 | 2,320,256 |
+| 語彙数 | 4,052 |
+| パラメータ数 | 1,256,276 |
 | 更新回数 | 10,000 |
-| M5 Proでの学習・評価時間 | CPU約305.9秒 / MPS約98.5秒 |
+| M5 Proでの学習・評価時間 | 約69秒 |
 
 Positionは学習可能なEmbedding、BlockはPre-LNとする。Part 1はweight tyingなし。各実行でパラメータ数と条件を保存する。
 

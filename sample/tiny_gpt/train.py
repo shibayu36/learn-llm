@@ -1,4 +1,3 @@
-import hashlib
 import json
 import platform
 import time
@@ -12,7 +11,7 @@ from tiny_gpt.config import Config
 from tiny_gpt.dataset import load_data, make_batch
 from tiny_gpt.generate import generate
 from tiny_gpt.model import TinyGPT
-from tiny_gpt.tokenizer import DATA_DIR, TOKENIZER_PATH, Tokenizer, read_texts
+from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
 
 
 def batch_loss(
@@ -143,7 +142,8 @@ def collect_generations(
 def run(config: Config) -> None:
     torch.manual_seed(config.seed)
     device = select_device()
-    tokenizer = Tokenizer()
+    # validationの内容を使わず、trainの文字だけから語彙を作る。
+    tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
     train_ids, validation_ids = load_data(tokenizer, config)
     model = TinyGPT(tokenizer.vocab_size, config).to(device)
 
@@ -180,7 +180,6 @@ def run(config: Config) -> None:
         "device": str(device),
         "parameters": parameter_count,
         "vocab_size": tokenizer.vocab_size,
-        "tokenizer_sha256": hashlib.sha256(TOKENIZER_PATH.read_bytes()).hexdigest(),
         "dataset": manifest,
         "train_tokens": len(train_ids),
         "validation_tokens": len(validation_ids),
@@ -202,7 +201,3 @@ def run(config: Config) -> None:
         "config": vars(config),
     }, output_dir / "model.pt")
     save_loss_curve(history, output_dir / "loss.png")
-
-
-if __name__ == "__main__":
-    run(Config())
