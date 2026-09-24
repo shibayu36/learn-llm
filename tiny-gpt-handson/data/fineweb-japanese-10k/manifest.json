@@ -1,0 +1,26 @@
+{
+  "source": "hotchpotch/fineweb-2-edu-japanese",
+  "revision": "180ca004c6a89b590daaad86cb062a07a5353c69",
+  "subset": "small_tokens_cleaned",
+  "source_split": "train",
+  "skipped_source_rows": 10000,
+  "skipped_empty": 0,
+  "skipped_exact_duplicates": 0,
+  "selection": "first 10000 unique nonempty stripped texts after skip",
+  "split_seed": 42,
+  "source_file": "small_tokens_cleaned/train-00000-of-00283.parquet",
+  "huggingface_hub_version": "1.32.0",
+  "pyarrow_version": "25.0.1",
+  "splits": {
+    "train": {
+      "documents": 9000,
+      "characters": 5920916,
+      "sha256": "4cc1b1f081da210e1f5f6b48a1c45d68b7eafc268d1ba0893cf3a43f9f05674b"
+    },
+    "validation": {
+      "documents": 1000,
+      "characters": 656568,
+      "sha256": "4637177bc467bb4c0529c098a0fbec1eab4705d7c6071169713533acedf9b863"
+    }
+  }
+}
