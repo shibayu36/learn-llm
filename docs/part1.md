@@ -387,48 +387,17 @@ print("復元:", tokenizer.decode(token_ids))
 uv run python main.py
 ```
 
-続いて、全文書をつないで1本のtoken列にします。文書の末尾にはEOSを付けます。
+### 動作確認 — 入力と正解の対応を見る
 
-**保存先：`tiny_gpt/dataset.py`。このファイルは1.11で拡張します。**
+各位置の正解が「1token先」になっているかを、ID列と復元した文章で確かめます。
 
-```python
-import torch
-
-from tiny_gpt.tokenizer import Tokenizer
-
-
-def encode_documents(texts: list[str], tokenizer: Tokenizer) -> torch.Tensor:
-    # 何千もの文書を、文書の区切りにEOSを挟んで1本の長いtoken列につなぐ。
-    # 例: ["骨粗しょう症とは", "私たちは呼吸"] という2文書なら
-    #   骨 粗 し ょ う 症 と は <eos> 私 た ち は 呼 吸 <eos>
-    # という1本の列になる（実際は1文字が1つのIDに置き換わる）。
-    # 学習ではこの長い列のどこからでも切り出して使う。
-    token_ids: list[int] = []
-    for text in texts:
-        token_ids.extend(tokenizer.encode(text))
-        # 別の文書へ移る境界を、専用のtokenで表す。
-        # これがないと「…呼吸<eos>」の続きが次の文書の冒頭に見え、
-        # モデルは無関係な文書同士が続いていると学習してしまう。
-        token_ids.append(tokenizer.eos_id)
-    return torch.tensor(token_ids, dtype=torch.long)
-```
-
-### 動作確認 — 文書のつなぎ目と、入力と正解の対応を見る
-
-短い2文書をつないで、境界にEOSが入ることを確かめます。続いて、各位置の正解が「1token先」になっているかをID列と復元した文章で確かめます。
+**`main.py` を次の内容にして実行します。**
 
 ```python
 import torch
-from tiny_gpt.dataset import encode_documents
 from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
 
-train_texts = read_texts(DATA_DIR / "train.jsonl")
-tokenizer = Tokenizer.from_texts(train_texts)
-
-joined = encode_documents(["日本の首都は東京です。", "猫は"], tokenizer)
-print("つないだID:", joined.tolist())
-print("復元:", tokenizer.decode(joined.tolist()))
-print("trainのtoken数:", len(encode_documents(train_texts, tokenizer)))
+tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
 
 text = "日本の首都は東京です。"
 ids = torch.tensor(tokenizer.encode(text), dtype=torch.long)
@@ -440,8 +409,6 @@ print("正解:", tokenizer.decode(y.tolist()))
 print(x.shape, y.shape)
 assert tokenizer.decode(tokenizer.encode(text)) == text
 ```
-
-復元した文字列は「日本の首都は東京です。<eos>猫は<eos>」になります。EOSはIDが0なので、つないだID列では2文書の末尾に `0` が入ります。trainの文書全体をつなぐと約593万tokenになります。
 
 入力は「日本の首都は東京です」、正解は「本の首都は東京です。」になり、shapeはどちらも `[10]` です。
 
@@ -1234,18 +1201,37 @@ Backpropagationが計算するのは「各パラメータを微小に変えた�
 
 ### 実装
 
-まず、学習に使うバッチを切り出す処理を書きます。1.2でつないだ1本のtoken列から連続する範囲を切り出します。この範囲を「窓」と呼びます。1組の入力・正解を作るには `T+1` tokenが必要です。先頭T個を入力、その1つ先からT個を正解にします。
+まず、学習に使うバッチを作る処理を書きます。
 
-**`dataset.py` のimportを次の内容に置き換え、末尾に2つの関数を追加します。**
+1.2では1つの文章から入力と正解を作りました。学習では9,000文書から毎回ばらばらの場所を選んで学習問題を作りたいので、文書ごとにTensorを持つより、全文書をつないだ1本の長いtoken列を持つほうが扱いやすくなります。文書の境界にはEOSを挟みます。EOSがないと、前の文書の末尾の続きが次の文書の冒頭に見え、無関係な文書同士が続いているとモデルが学習してしまいます。
+
+その1本の列から、連続する範囲を切り出してバッチにします。この範囲を「窓」と呼びます。1組の入力・正解を作るには `T+1` tokenが必要です。先頭T個を入力、その1つ先からT個を正解にします。
+
+**`tiny_gpt/dataset.py` を次の内容で作成します。**
 
 ```python
 import torch
 
 from tiny_gpt.config import Config
 from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
-```
 
-```python
+
+def encode_documents(texts: list[str], tokenizer: Tokenizer) -> torch.Tensor:
+    # 何千もの文書を、文書の区切りにEOSを挟んで1本の長いtoken列につなぐ。
+    # 例: ["骨粗しょう症とは", "私たちは呼吸"] という2文書なら
+    #   骨 粗 し ょ う 症 と は <eos> 私 た ち は 呼 吸 <eos>
+    # という1本の列になる（実際は1文字が1つのIDに置き換わる）。
+    # 学習ではこの長い列のどこからでも切り出して使う。
+    token_ids: list[int] = []
+    for text in texts:
+        token_ids.extend(tokenizer.encode(text))
+        # 別の文書へ移る境界を、専用のtokenで表す。
+        # これがないと「…呼吸<eos>」の続きが次の文書の冒頭に見え、
+        # モデルは無関係な文書同士が続いていると学習してしまう。
+        token_ids.append(tokenizer.eos_id)
+    return torch.tensor(token_ids, dtype=torch.long)
+
+
 def load_data(tokenizer: Tokenizer) -> tuple[torch.Tensor, torch.Tensor]:
     train_texts = read_texts(DATA_DIR / "train.jsonl")
     validation_texts = read_texts(DATA_DIR / "validation.jsonl")
@@ -1418,14 +1404,14 @@ print(F.cross_entropy(confident, target).item())
 
 結果は約1.099と約0.095です。次に、正解を `0` へ変えて同じlogitsを評価すると、2つ目のlossは大きくなります。自信を持って間違えるほど正解の確率が低くなるためです。
 
-次に、作ったモデルとデータで実際にlossを測り、少しだけ学習させます。
+次に、作ったモデルとデータで実際にlossを測り、少しだけ学習させます。その前に、短い2文書をつないで境界にEOSが入ることも確かめます。
 
 **`main.py` を次の内容にして実行します。**
 
 ```python
 import torch
 from tiny_gpt.config import Config
-from tiny_gpt.dataset import load_data, make_batch
+from tiny_gpt.dataset import encode_documents, load_data, make_batch
 from tiny_gpt.model import TinyGPT
 from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
 from tiny_gpt.train import batch_loss, train_model
@@ -1435,7 +1421,13 @@ config.steps = 100
 config.eval_every = 50
 torch.manual_seed(config.seed)
 tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
+
+joined = encode_documents(["日本の首都は東京です。", "猫は"], tokenizer)
+print("つないだID:", joined.tolist())
+print("復元:", tokenizer.decode(joined.tolist()))
+
 train_ids, validation_ids = load_data(tokenizer)
+print("trainのtoken数:", len(train_ids))
 model = TinyGPT(tokenizer.vocab_size, config)
 
 generator = torch.Generator()
@@ -1449,6 +1441,8 @@ print("学習前のloss:", round(batch_loss(model, x, y).item(), 4))
 history, elapsed = train_model(model, train_ids, validation_ids, config)
 print("秒数:", round(elapsed, 1))
 ```
+
+復元した文字列は「日本の首都は東京です。<eos>猫は<eos>」になります。EOSはIDが0なので、つないだID列では2文書の末尾に `0` が入ります。trainの文書全体をつなぐと約593万tokenになります。
 
 `x` と `y` のshapeは `[16, 128]` で、正解は入力を1文字ずらした文字列です。学習前のlossは約8.49になります。語彙4,052個から一様に選んだときのlossが `−log(1/4052) ≈ 8.31` なので、初期値のモデルは当てずっぽうとほぼ同じです。100回の更新でlossは次のように下がります。
 
