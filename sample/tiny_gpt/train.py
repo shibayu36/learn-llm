@@ -98,16 +98,10 @@ def train_model(
     return history, elapsed
 
 
-def select_device(name: str) -> torch.device:
-    if name == "auto":
-        if torch.backends.mps.is_available():
-            return torch.device("mps")
-        return torch.device("cpu")
-    if name == "mps" and not torch.backends.mps.is_available():
-        raise RuntimeError("この環境ではMPSを利用できません")
-    if name not in ("cpu", "mps"):
-        raise ValueError("deviceはcpu、mps、autoから選んでください")
-    return torch.device(name)
+def select_device() -> torch.device:
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
 
 
 def save_loss_curve(history: list[dict[str, float]], path: Path) -> None:
@@ -149,7 +143,7 @@ def collect_generations(
 def run(config: Config) -> None:
     torch.set_num_threads(config.cpu_threads)
     torch.manual_seed(config.seed)
-    device = select_device(config.device)
+    device = select_device()
     tokenizer = Tokenizer()
     train_ids, validation_ids = load_data(tokenizer, config)
     model = TinyGPT(tokenizer.vocab_size, config).to(device)

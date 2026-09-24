@@ -11,7 +11,7 @@ def main() -> None:
     config = Config()
     torch.set_num_threads(config.cpu_threads)
     torch.manual_seed(config.seed)
-    device = select_device(config.device)
+    device = select_device()
     tokenizer = Tokenizer()
     model = TinyGPT(tokenizer.vocab_size, config).to(device)
     parameter_count = 0
