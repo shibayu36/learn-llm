@@ -15,7 +15,7 @@ flowchart TD
     add --> x
     subgraph block["Transformer Block × 1：入出力は［B, T, D］"]
         x["入力 x"] --> norm1["LayerNorm"]
-        norm1 --> attention["1-head Causal Self-Attention<br/>Q・K・V → score → 未来をMask<br/>→ softmax → Valueの重み付き和 → 出力変換"]
+        norm1 --> attention["1-head Causal Self-Attention<br/>Q・K・V → スコア → 未来をMask<br/>→ softmax → Valueの重み付き和 → 出力変換"]
         attention --> sum1["＋"]
         x -->|"Residual Connection"| sum1
         sum1 --> norm2["LayerNorm"]
@@ -26,7 +26,7 @@ flowchart TD
     sum2 --> finalnorm["最後のLayerNorm"]
     finalnorm --> head["LM Head：D → vocab_size"]
     head --> logits["次tokenのlogits：［B, T, vocab_size］"]
-    logits -->|"学習：すべての位置"| loss["正解とのLoss → 勾配計算 → パラメータ更新"]
+    logits -->|"学習：すべての位置"| loss["正解とのloss → 勾配計算 → パラメータ更新"]
     logits -->|"生成：最後の位置"| select["greedy / samplingで1token選ぶ"]
     select --> append["入力の末尾へ追加して繰り返す"]
 ```
@@ -43,7 +43,7 @@ flowchart TD
 
 この分割にはよく現れる並びをまとめるBPEという方式を使います。仕組みは1.2で説明します。
 
-uvが使える環境でこのリポジトリのルートから次のコマンドを実行します。必要なPythonと依存関係はuvが用意します。最初の2行で日本語の1万文書を保存し、tokenの語彙と分割規則を作ります。ここで保存されるデータは参照コード側の `sample/data/` に入ります。自分の作業用ディレクトリには、1.2で同じ手順で作ります。
+uvが使える環境でこのリポジトリのルートから次のコマンドを実行します。最初の2行で日本語の1万文書を保存し、tokenの語彙と分割規則を作ります。ここで保存されるデータは参照コード側の `sample/data/` に入ります。自分の作業用ディレクトリには、1.2で同じ手順で作ります。
 
 ```bash
 uv run --frozen --directory sample python prepare_data.py
@@ -71,9 +71,9 @@ flowchart LR
 
 **文章を生成する仕組みができていても、適切な続きを予測できるとは限りません。** ではどのように予測を計算し、学習によって何を変えるのでしょうか。
 
-ここから自分の作業場所で一つずつ実装していきます。Part 1の最後に同じ入力を使い、学習で予測がどう変わったかを比べましょう。
+ここから自分の作業用ディレクトリで1つずつ実装していきます。Part 1の最後に同じ入力を使い、学習で予測がどう変わったかを比べましょう。
 
-参考：[学習前のGPTが1tokenずつ生成する過程を見る](demos/part1.html#generation)
+操作デモ：[学習前のGPTが1tokenずつ生成する過程を見る](demos/part1.html#generation)
 
 ## このPartで作るもの
 
@@ -89,7 +89,7 @@ flowchart LR
 
 FineWeb-2 Edu Japaneseの `small_tokens_cleaned` から1万文書を取り出して使います。日本語の語句や文末のつながりが学習前後でどう変わるかを観察しましょう。
 
-取得するのは最初のParquetファイル1つだけです。そこから重複しない1万文書を選び、train 9,000文書・validation 1,000文書に分けて保存します。以降は同じデータを使うので、実験のたびに取得する必要はありません。
+配布データから重複しない1万文書を選び、train 9,000文書・validation 1,000文書に分けて保存します。以降は同じデータを使うので、実験のたびに取得する必要はありません。
 
 配布元：[FineWeb-2 Edu Japanese](https://huggingface.co/datasets/hotchpotch/fineweb-2-edu-japanese)
 
@@ -106,13 +106,11 @@ FineWeb-2 Edu Japaneseの `small_tokens_cleaned` から1万文書を取り出し
 | 更新回数 | 10,000回 |
 | パラメータ数 | 2,320,256（約232万） |
 
-まず20回更新して一連の処理を確認し、その後で10,000回の学習を実行します。CPUでの学習は5〜10分程度が目安です。Apple M5 ProのCPU・4スレッドでは学習と定期評価に約5.1分かかりました。
+まず20回更新して一連の処理を確認し、その後で10,000回の更新を実行します。CPUでの学習は5〜10分程度が目安です。
 
-### ファイルを分ける
+### 作業用ディレクトリの構成
 
 このリポジトリの `sample/` に参照用の完成コードがあります。本文を読みながら、自分の作業用ディレクトリ `tiny-gpt-handson/` に実装していきましょう。途中で迷ったときは参照コードの対応するファイルを確認できます。
-
-コードはデータ・モデル・学習・生成に分けます。Attentionの計算を追うときは `model.py`、パラメータが更新される順序を追うときは `train.py` を読める構成です。
 
 ```text
 tiny-gpt-handson/
@@ -131,14 +129,14 @@ tiny-gpt-handson/
 │   ├── dataset.py       文書のID化と入力・正解の組
 │   ├── model.py         GPTの計算
 │   ├── generate.py      次token予測の繰り返し
-│   └── train.py         Loss・更新・記録
+│   └── train.py         loss・更新・記録
 └── runs/
     └── part1/           実行時に作成する結果の保存先
 ```
 
-以下ではファイルに保存するコードとその場で試す確認コードを区別します。`model.py` は部品を順に追加し、1.10でモデル全体がつながります。学習コマンドを実行するのは1.13です。
+`model.py` は部品を順に追加し、1.10でモデル全体がつながります。学習コマンドを実行するのは1.13です。
 
-途中の実験では確認コードを作業用ディレクトリの `check.py` に保存し、`uv run python check.py` で実行します。次の実験では内容を置き換えてください。毎回新しいPythonプロセスで起動するので、変更した実装が読み込まれます。
+途中の実験で使う、保存先を示していない確認コードは、作業用ディレクトリの `check.py` に保存して `uv run python check.py` で実行します。次の実験では内容を置き換えてください。
 
 ### uvで環境を用意する
 
@@ -172,7 +170,7 @@ dependencies = [
 uv sync --python 3.14.7
 ```
 
-以降のコマンドと保存先はこの作業用ディレクトリを基準にします。uvはプロジェクトの環境でコマンドを実行でき、依存関係を `uv.lock` に記録します。[uvのプロジェクト管理](https://docs.astral.sh/uv/guides/projects/)
+以降のコマンドと保存先はこの作業用ディレクトリを基準にします。
 
 ### 実験条件を1か所に置く
 
@@ -184,32 +182,29 @@ uv sync --python 3.14.7
 class Config:
     def __init__(self) -> None:
         # 1tokenを表すベクトルの次元数（shapeの D）。Embeddingから
-        # Attention・MLP・LM Headまで、すべての層がこの幅でつながる
+        # Attention・MLP・LM Headまで、すべての部品がこの幅でつながる
         self.d_model: int = 128
-        # 一度にモデルへ入れる系列の最大token数（shapeの T）。
+        # 1系列に入れるtoken数の上限。shapeの T はこの値以下。
         # Attentionが参照できる範囲であり、生成時に見返せる長さでもある
         self.context_length: int = 128
-        # 1stepの更新で同時に学習する系列の数（shapeの B）
+        # 1回の更新に使う系列の数（shapeの B）。
+        # B本ぶんのlossを平均して、パラメータを1回だけ更新する
         self.batch_size: int = 16
         # パラメータを更新する回数。
         # 1stepで batch_size × context_length 個のtokenから学習する
         self.steps: int = 10000
         # 1回の更新で、勾配の方向へパラメータを動かす幅。AdamWに渡す
         self.learning_rate: float = 0.0003
-        # 何stepごとにvalidationデータのlossを測るか
+        # 何stepごとにvalidationのlossを測るか
         self.eval_every: int = 1000
         # 評価1回で使うバッチ数。複数バッチの平均を取り、lossのぶれを抑える
         self.eval_batches: int = 8
-        # 乱数の種。初期化する重みと、学習に使うバッチの切り出し位置を
+        # 乱数の種。初期化するパラメータと、学習に使うバッチの切り出し位置を
         # 実行ごとに同じにする
         self.seed: int = 42
-        # CPUで計算するときに使うスレッド数
-        self.cpu_threads: int = 4
         # 結果の保存先 runs/<run_name>。設定を変えて比較するときは名前も変える
         self.run_name: str = "part1"
 ```
-
-コードの `: int` や `: str` は値の型、関数の `->` の後は戻り値の型です。Tensorには `torch.Tensor` と書き、shapeは説明やコメントで示します。
 
 ### Tensorのshapeを読む
 
@@ -217,32 +212,20 @@ class Config:
 
 | 記号 | 意味 | 最初の設定での例 |
 |---|---|---:|
-| `B` | batch size。一度に処理する系列の数 | 16 |
+| `B` | バッチサイズ。一度に処理する系列の数 | 16 |
 | `T` | 1系列に含まれるtoken数 | 128 |
 | `D` | 1tokenを表すベクトルの次元 | 128 |
 | `vocab_size` | 語彙に含まれるtokenの数 | 8,192 |
 
-`[B, T, D]` は「B個の系列があり、それぞれのT個の位置にD次元のベクトルがある」という意味です。`T` と `D` が同じ数でも役割は異なります。小さな確認コードでは違いを見分けやすいように `T=3`、`D=4` などに変えます。
-
-PyTorch固有の `reshape`・`transpose`・ブロードキャストはshapeの変化と一緒に確認します。
+`[B, T, D]` は「B個の系列があり、それぞれのT個の位置にD次元のベクトルがある」という意味です。最初の設定では `T` も `D` も128ですが、別の軸です。
 
 ## 1.1 GPT全体の流れ — 各位置で次のtokenを予測する
 
-### まず何が問題なのか
-
-文章は長さが決まっていません。文章全体を一度に1つの正解として予測しようとすると、候補の組み合わせが膨大になります。
-
-一方「ここまでの文章の次には何が来るか」なら候補を語彙の中から選ぶ問題として扱えます。
-
-### この技術が解決すること
-
-GPTは入力されたtoken列から次のtokenの分布を予測します。1token選んで入力に追加すれば、同じ処理でさらに次のtokenを予測できます。
-
-今回使うBPEではtokenが単語の一部や複数の文字に対応します。GPTが予測するのはtokenのIDで、読める文章へ戻すのはTokenizerの役割です。
+冒頭で動かしたGPTは、次のtokenを1つ選んで入力へ追加する処理を繰り返していました。この節では、その「次のtokenを予測する」をどんな計算問題として定義するかを決めます。ここで決めた問題を、1.2以降の部品で1つずつ解いていきます。
 
 ### 仕組み
 
-「日本の首都は東京です。」をtokenへ分けて末尾の「。」を除いて入力すると、各位置で次のtokenのスコアを返します。
+「日本の首都は東京です。」をtokenへ分けて末尾の「。」を除いて入力すると、各位置で次のtokenのスコア（1.10でlogitと呼びます）を返します。
 
 | 入力の位置 | その位置までの入力 | 予測する正解token |
 |---|---|---|
@@ -254,7 +237,7 @@ GPTは入力されたtoken列から次のtokenの分布を予測します。1tok
 
 1系列の出力shapeは `[1, 5, vocab_size]` です。位置2で「東京」を予測するとき、入力の位置3にある「東京」を見せてはいけません。この制限は1.6のCausal Maskで実装します。
 
-数式では、文章の確率を次のように分けます。
+文章は長さが決まっていないので、文章全体を1つの出力として予測することはできません。代わりに文章の確率を次のように分け、各項を同じモデルで予測します。
 
 ```text
 P(x₁, x₂, ..., xₙ)
@@ -263,9 +246,7 @@ P(x₁, x₂, ..., xₙ)
 
 この各項に相当する予測を学習するモデルを自己回帰言語モデルと呼びます。
 
-Transformerには複数の構成があります。この教材では過去と現在の位置を参照するSelf-Attentionを使い、別のEncoderの出力を読む仕組みを持たない **Decoder-only** 構成を作ります。元のEncoder–Decoder型TransformerのDecoderをそのまま丸ごと実装するわけではありません。
-
-LLMは大規模な言語モデルの総称です。今回のTiny GPTはLLMと共通する計算の仕組みを学ぶための小さなモデルであり、その規模や学習量を再現するものではありません。
+この教材では過去と現在の位置を参照するSelf-Attentionを使い、別のEncoderの出力を読む仕組みを持たない **Decoder-only** 構成を作ります。
 
 ### 実装
 
@@ -328,8 +309,6 @@ Tokenizerの語彙を作ることとGPTを学習させることは別の処理�
 ```bash
 uv run python prepare_data.py
 ```
-
-配布元が案内する先頭1万件の重複を除き、空でない異なる本文を1万件選びます。seed 42で並べ替えてからtrain 9,000文書・validation 1,000文書に分けます。取得元のrevisionと保存したデータのSHA-256も記録します。
 
 **trainはパラメータ更新に使う文書、validationは更新に使わず予測を測る文書**です。文書単位で分けることで同じ文書の前半がtrain、後半がvalidationに入ることを防ぎます。
 
@@ -414,7 +393,7 @@ if __name__ == "__main__":
     main()
 ```
 
-`train_tokenizer` が語彙と分割規則を作り、`Tokenizer` が保存済みの規則で変換します。`as BpeTokenizer` はimportしたクラスに別名を付ける書き方です。自分で定義した `Tokenizer` と名前が重ならないようにしています。
+`train_tokenizer` が語彙と分割規則を作り、`Tokenizer` が保存済みの規則で変換します。
 
 次のコマンドで語彙を作ります。すでに `tokenizer.json` がある場合は保存した規則を使います。
 
@@ -478,7 +457,7 @@ def make_batch(
     for start_tensor in starts:
         start = int(start_tensor.item())
         end = start + config.context_length
-        # 各位置の正解は1token先。入力と正解の長さはどちらもTにそろえる。
+        # 各位置の正解は1token先。入力と正解の長さはどちらもTに揃える。
         inputs.append(data[start:end])
         targets.append(data[start + 1:end + 1])
 
@@ -545,7 +524,7 @@ tokenベクトル = E[token ID]
 
 ### 実装
 
-基本部品の `nn.Embedding` を使います。たとえば語彙数6、ベクトルの次元4なら次のように表を作れます。モデルへの組み込みは1.10で行います。
+`nn.Embedding` を使います。たとえば語彙数6、ベクトルの次元4なら次のように表を作れます。モデルへの組み込みは1.10で行います。
 
 ```python
 token_embedding = nn.Embedding(6, 4)
@@ -578,7 +557,7 @@ Embeddingはtokenを学習可能なベクトルに変換する表です。文脈
 
 ### まず何が問題なのか
 
-Token Embeddingではtoken列 `[猫, 犬]` と `[犬, 猫]` は同じ2つのベクトルを逆順に並べたものになります。位置情報もMaskもないSelf-Attentionは、入力を並べ替えると出力も同じように並べ替わります。順序に固有の手掛かりを持っていないためです。
+Token Embeddingではtoken列 `[猫, 犬]` と `[犬, 猫]` は同じ2つのベクトルを逆順に並べたものになります。Position情報もMaskもないSelf-Attentionは、入力を並べ替えると出力も同じように並べ替わります。順序に固有の手掛かりを持っていないためです。
 
 文章を扱うには内容だけでなく並び方も区別したい場面があります。
 
@@ -596,9 +575,9 @@ position_embedding(位置)   [T, D]
 足した結果                 [B, T, D]
 ```
 
-位置ベクトルはbatch内のすべての系列で共通なので、`[T, D]` を各系列へ足せます。PyTorchがサイズ1の軸を補って計算するブロードキャストを使っています。
+位置ベクトルはバッチ内のすべての系列で共通なので、`[T, D]` を各系列へ足せます。PyTorchがサイズ1の軸を補って計算するブロードキャストを使っています。
 
-位置の表し方はこれだけではありません。RoPEのように、Attentionの計算へ位置関係を組み込む方式もあります。このPartではまずEmbeddingを足す方式で位置情報の役割を確かめます。
+位置の表し方はこれだけではありません。RoPEのように、Attentionの計算へ位置関係を組み込む方式もあります。このPartではまずEmbeddingを足す方式でPosition情報の役割を確かめます。
 
 ### 実装
 
@@ -636,9 +615,9 @@ Self-Attentionは各位置について「他の位置の情報をどの割合で
 
 | ベクトル | この計算での役割 |
 |---|---|
-| Query（Q） | 参照する側の特徴。Keyとのスコア計算に使う |
+| Query（Q） | 参照する側の特徴。Keyとのスコア（score）計算に使う |
 | Key（K） | 参照される側の特徴。Queryとのスコア計算に使う |
-| Value（V） | 重みを掛けて、実際に集める情報 |
+| Value（V） | softmax後の割合を掛けて、実際に集める情報 |
 
 入力のベクトル同士をそのまま照合する代わりに、参照する側・参照される側・集める情報に分けて変換します。「どの情報を選ぶか」と「選んだ先から何を受け取るか」にそれぞれ適した変換を学習できます。Q・K・Vの役割を人が決め打ちするのではなく、次token予測の誤差から変換行列を更新します。
 
@@ -666,17 +645,17 @@ Attention(Q, K, V) = softmax(QKᵀ / √d_k)V
 | 最後の軸にsoftmax | `[B, T, T]` | `[B, T, T]` |
 | Valueの重み付き和 | `[B, T, T] × [B, T, D]` | `[B, T, D]` |
 
-内積は対応する成分を掛けて足す計算です。2次元なら `q・k = q[0]×k[0] + q[1]×k[1]` です。向きがそろうほど大きくなりますが、ベクトルの長さにも左右されます。softmaxはこのscoreを指数関数に通して合計で割り、参照する割合へ変換します。
+内積は対応する成分を掛けて足す計算です。2次元なら `q・k = q[0]×k[0] + q[1]×k[1]` です。向きが揃うほど大きくなりますが、ベクトルの長さにも左右されます。softmaxはこのスコアを指数関数に通して合計で割り、Attention weight（各位置をどの割合で参照するか）へ変換します。
 
 操作デモ：[内積が参照の割合に変わる過程を見る](demos/part1.html#dot-product)
 
-Queryの向きと長さを変え、scoreとsoftmax後の割合がどう動くかを確かめられます。
+Queryの向きと長さを変え、スコアとsoftmax後の割合がどう動くかを確かめられます。
 
-`[T, T]` の行は参照する側、列は参照される側です。各行にsoftmaxを適用すると、その位置から各tokenへ向けた重みの合計が1になります。
+`[T, T]` の行は参照する側、列は参照される側です。各行にsoftmaxを適用すると、その位置から各tokenへ向けたAttention weightの合計が1になります。
 
 `√d_k` で割るのは、次元が増えたときに内積の大きさが増え、softmaxが極端に偏りやすくなるのを抑えるためです。各成分の分散が同程度という仮定では内積の分散は次元数に比例します。平方根で割ることでそのスケールを調整します。この計算はscaled dot-product attentionと呼ばれます。[Attention Is All You Need](https://arxiv.org/abs/1706.03762)
 
-小さな数値で重みがどのようにできるかを見てみましょう。ここでは学習済みの値を使わず、計算を追うためにQ・K・Vを直接決めます。
+小さな数値でAttention weightがどのようにできるかを見てみましょう。ここでは学習済みの値を使わず、計算を追うためにQ・K・Vを直接決めます。
 
 ```text
 Q = [[1, 0],       K = [[1, 0],       V = [[10,  0],
@@ -694,13 +673,13 @@ weights ≈ [[0.670, 0.330],
 
 QとKが決めるのは混ぜる割合です。最終的に混ぜる対象はValueです。
 
-操作デモ：[Valueを重みの分だけ縮めて足す](demos/part1.html#weighted-sum)
+操作デモ：[ValueをAttention weightの分だけ縮めて足す](demos/part1.html#weighted-sum)
 
 矢印を1本ずつつなぎ、「他のtokenの情報を集める」がベクトルの足し算であることを確かめられます。
 
 ### 実装
 
-まず、Q・K・Vから重み付き和を計算する関数を作ります。続いて、入力をQ・K・Vへ変換する層を作ります。
+まず、Q・K・Vから重み付き和を計算する関数を作ります。続いて、入力をQ・K・Vへ変換するモジュールを作ります。
 
 **保存先：`tiny_gpt/model.py`。このファイルは以降の節で拡張します。**
 
@@ -721,7 +700,7 @@ def scaled_attention(
     # [B, T, D] @ [B, D, T] → [B, T, T]。行iから列jを参照するスコア。
     scores = q @ k.transpose(-2, -1)
     scores = scores / math.sqrt(key_size)
-    # 各行について参照先の重みを合計1にし、その割合でValueを集める。
+    # 各行について参照先のAttention weightを合計1にし、その割合でValueを集める。
     weights = torch.softmax(scores, dim=-1)
     output = weights @ v
     return output, weights
@@ -751,13 +730,13 @@ class SelfAttention(nn.Module):
 
 最後の `self.output` は集めた情報を次の処理へ渡す線形変換です。
 
-`nn.Module` を継承したクラスで各層を属性へ代入すると、PyTorchがそのパラメータを登録します。`model.parameters()` や `model.to(device)` が中の層まで扱えるのは、この登録があるためです。
+`nn.Module` を継承したクラスで各モジュールを属性へ代入すると、PyTorchがそのパラメータを登録します。`model.parameters()` や `model.to(device)` が中のモジュールまで扱えるのは、この登録があるためです。
 
 **この時点のAttentionは未来のtokenも参照できます。次の節でMaskを追加してからGPTの学習に使います。**
 
 ### 実験 — 混ぜる割合と混ぜる情報を分けて変える
 
-Q・Kが決める重みとVから集める情報が別の役割を持つことを確かめます。
+Q・Kが決めるAttention weightとVから集める情報が別の役割を持つことを確かめます。
 
 先ほどの数値例を動かします。
 
@@ -775,15 +754,15 @@ print(output)
 torch.testing.assert_close(weights.sum(dim=-1), torch.ones(1, 2))
 ```
 
-次に、Q・Kを変えずにValueだけを2倍にしてください。重みは変わらず、重み付き和は2倍になります。Q・KとValueが別の役割を持つことを確かめられます。
+次に、Q・Kを変えずにValueだけを2倍にしてください。Attention weightは変わらず、重み付き和は2倍になります。Q・KとValueが別の役割を持つことを確かめられます。
 
 操作デモ：[Wq・Wk・Wvを変えて、役割の違いを確かめる](demos/part1.html#qkv)
 
-同じ入力Xからでも、Wq・Wkを変えると参照する割合が変わります。Wvだけを変えると割合は同じまま、集める情報と出力が変わります。入力から計算するQ/K/Vと学習するWq/Wk/Wvの違いを確認してください。
+同じ入力Xからでも、Wq・Wkを変えると参照する割合が変わります。Wvだけを変えると割合は同じまま、集める情報と出力が変わります。入力から計算するQ・K・Vと学習するWq・Wk・Wvの違いを確認してください。
 
 ### この節で理解したこと
 
-Self-AttentionはQ・Kから参照先ごとの重みを作り、その重みでValueを集めます。重みは入力ごとに変わり、その作り方を決める変換行列は学習で変わります。
+Self-AttentionはQ・Kから参照先ごとのAttention weightを作り、その割合でValueを集めます。Attention weightは入力ごとに変わり、その作り方を決める変換行列は学習で変わります。
 
 ## 1.6 Causal Mask — 次に予測するはずのtokenを見せない
 
@@ -808,10 +787,10 @@ Self-AttentionはQ・Kから参照先ごとの重みを作り、その重みでV
              2       ○    ○    ○    ×
              3       ○    ○    ○    ○
 
-× のscoreを -∞ にする → softmax後の重みは0
+× のスコアを −∞ にする → softmax後のAttention weightは0
 ```
 
-softmaxの前に0を入れるだけでは不十分です。`exp(0)=1` なので、その位置にも重みが付く可能性があるためです。
+softmaxの前に0を入れるだけでは不十分です。`exp(0)=1` なので、その位置にもAttention weightが付く可能性があるためです。
 
 MaskがないSelf-Attentionは全位置を参照できます。上の制限を加えたものがCausal Self-Attentionです。すべてのTransformerで未来を隠すわけではなく、この教材の自己回帰生成に必要な制限です。
 
@@ -832,18 +811,16 @@ def scaled_attention(
     if causal:
         future = torch.ones(length, length, dtype=torch.bool, device=q.device)
         future = torch.triu(future, diagonal=1)
-        # 未来のスコアを -∞ にすると、softmax後の重みが0になる。
+        # 未来のスコアを −∞ にすると、softmax後のAttention weightが0になる。
         scores = scores.masked_fill(future, float("-inf"))
 
-    # 各行について参照先の重みを合計1にし、その割合でValueを集める。
+    # 各行について参照先のAttention weightを合計1にし、その割合でValueを集める。
     weights = torch.softmax(scores, dim=-1)
     output = weights @ v
     return output, weights
 ```
 
-`torch.triu(..., diagonal=1)` は対角線より右上を残します。Maskのshapeは `[T, T]` で、batch内の各スコア行列へ共通に適用されます。現在のtokenに相当する対角線は隠しません。
-
-この実装ではQ・K・Vの系列の長さを揃えます。
+`torch.triu(..., diagonal=1)` は対角線より右上を残します。Maskのshapeは `[T, T]` で、バッチ内の各スコア行列へ共通に適用されます。現在のtokenに相当する対角線は隠しません。
 
 Causal Maskも参照できる範囲を位置ごとに変えるため、位置の手掛かりを含みます。ただしPosition Embeddingとは働きが異なります。位置の表現を明示的に与える処理と未来を参照させない処理を組み合わせて使います。
 
@@ -872,7 +849,7 @@ Maskありでは1行目が `[1, 0]` になります。最初のtokenは自分し
 
 操作デモ：[Causal Maskの有無を切り替える](demos/part1.html#causal-mask)
 
-未来へのscoreが−∞になり、weightが0になる変化を確認できます。
+未来へのスコアが−∞になり、Attention weightが0になる変化を確認できます。
 
 ### この節で理解したこと
 
@@ -882,9 +859,7 @@ Causal Maskは未来の正解を参照する抜け道を防ぎます。これに
 
 ### まず何が問題なのか
 
-Attentionで他のtokenから情報を集められるようになりました。ただし集めた情報を次の予測へ使いやすい表現に加工する処理も必要です。
-
-情報を集める計算だけに表現の変換をすべて任せる必要はありません。
+Attentionの出力はValueの重み付き和に線形変換を掛けたものです。どの位置からどれだけ集めるかは入力に応じて変わりますが、集めた後のベクトルには線形な変換しか掛かっていません。集めた情報同士を組み合わせて別の特徴を作るような非線形な処理が、各位置にまだありません。
 
 ### この技術が解決すること
 
@@ -925,8 +900,6 @@ class FeedForward(nn.Module):
 
 ### 実験 — 別のtokenへ変更が伝わるか
 
-MLPが各tokenを独立に加工することを1か所だけ入力を変えて確かめます。
-
 位置0の入力だけを変え、位置2の出力が変わるかを確かめます。
 
 ```python
@@ -944,7 +917,7 @@ torch.testing.assert_close(original_output[0, 2], changed_output[0, 2])
 print(original_output.shape)
 ```
 
-位置2の出力は同じです。MLP単独では別のtokenの変更は伝わりません。一方Causal Attentionでは位置2から過去の位置0を参照できるため、位置0の変更が位置2の出力へ影響することがあります。
+位置2の出力は同じです。MLP単独では別のtokenの変更は伝わりません。一方Causal Self-Attentionでは位置2から過去の位置0を参照できるため、位置0の変更が位置2の出力へ影響することがあります。
 
 ### この節で理解したこと
 
@@ -989,7 +962,7 @@ LayerNorm(xᵢ) = γᵢ × (xᵢ − μ) / √(σ² + ε) + βᵢ
 
 ### 実装
 
-計算する軸を確認できるように、この教材ではLayerNormを自分で書きます。**`model.py` に `LayerNorm` を追加します。**
+`nn.LayerNorm` と同じ計算を、正規化する軸が見えるように自分で書きます。**`model.py` に `LayerNorm` を追加します。**
 
 ```python
 class LayerNorm(nn.Module):
@@ -1027,13 +1000,7 @@ Residual Connectionは元の表現に更新分を加える構造です。LayerNo
 
 ## 1.9 Transformer Block — 情報の収集と加工を1層にまとめる
 
-### まず何が問題なのか
-
-ここまでの部品をどの順番でつなぐか決める必要があります。位置の数やベクトルの次元が途中で変わると、元の表現へ足したり、同じ構造を重ねたりできません。
-
-### この技術が解決すること
-
-入出力を `[B, T, D]` に揃えたTransformer Blockを作ります。このBlockを1回通すことがこの教材でいう「1層」に対応します。`Linear` が1つだけある、という意味ではありません。
+ここまでに作ったAttention・MLP・Residual Connection・LayerNormを1つのTransformer Blockにつなぎます。入出力の形を `[B, T, D]` に揃えておくと、元の表現へ足すResidual Connectionが成立し、同じBlockを何層でも重ねられます。このBlockを1回通すことが、この教材でいう「1層」に対応します。
 
 ### 仕組み
 
@@ -1073,7 +1040,7 @@ class TransformerBlock(nn.Module):
         return x
 ```
 
-Attentionの2つ目の戻り値は観察用の重みです。Block内では使わないため、変数名を `_` にしています。重要な処理はこの `forward` の3行に対応します。
+Attentionの2つ目の戻り値は観察用のAttention weightで、Block内では使いません。
 
 Blockの入出力はどちらも `[B, T, D]` です。次のBlockへそのまま渡せる形になりました。モデル全体をつないだ後で1.10の確認コードを実行します。
 
@@ -1081,7 +1048,7 @@ Blockの入出力はどちらも `[B, T, D]` です。次のBlockへそのまま
 
 GPTの1層はAttention・MLP・LayerNorm・Residual Connectionを組み合わせたBlockです。同じshapeで受け渡せるので、このBlockを積み重ねられます。
 
-## 1.10 LM Head — 各tokenの表現を次token候補のスコアに変える
+## 1.10 LM Head — 各tokenの表現を次token候補のlogitに変える
 
 ### まず何が問題なのか
 
@@ -1089,12 +1056,12 @@ Blockの出力はD次元のベクトルです。そのままでは「次は `a` 
 
 ### この技術が解決すること
 
-LM HeadでD次元から`vocab_size` 次元へ変換します。各位置に次token候補ごとのlogitが1つずつ出ます。
+LM HeadでD次元から `vocab_size` 次元へ変換します。各位置に次token候補ごとのスコアであるlogitが1つずつ出ます。
 
 ### 仕組み
 
 ```text
-hidden state          [B, T, D]
+Blockの出力           [B, T, D]
 最後のLayerNorm       [B, T, D]
 LM Head               Linear(D, vocab_size)
 logits                [B, T, vocab_size]
@@ -1133,7 +1100,7 @@ class TinyGPT(nn.Module):
         x = x + self.position_embedding(positions)
         x = self.block(x)
         x = self.final_norm(x)
-        # 各位置から次token候補のスコアを出す。出力は [B, T, vocab_size]。
+        # 各位置から次token候補のlogitを出す。出力は [B, T, vocab_size]。
         logits = self.lm_head(x)
         return logits
 ```
@@ -1144,9 +1111,9 @@ Embeddingの重み `[vocab_size, D]` とLM Headの重み `[vocab_size, D]` を�
 
 ### 動作確認 — 全体のshapeと未来の遮断を確かめる
 
-モデル全体を通して、出力が次token候補のスコアになっているか、未来の情報が過去へ漏れていないかを確認します。
+モデル全体を通して、出力が次token候補のlogitになっているか、未来の情報が過去へ漏れていないかを確認します。
 
-モデル全体の入出力とCausal Maskが最後まで効いているかを確認します。後半のtokenだけを変えても、前半の出力は変わらないはずです。
+後半のtokenだけを変えても、前半の出力は変わらないはずです。
 
 ```python
 import torch
@@ -1178,18 +1145,18 @@ torch.testing.assert_close(first_logits[:, :3], second_logits[:, :3])
 parameter_count = 0
 for parameter in model.parameters():
     parameter_count += parameter.numel()
-print("parameter数:", parameter_count)
+print("パラメータ数:", parameter_count)
 ```
 
 shapeは `[1, 6, 8192]` です。`torch.no_grad()` の範囲では後の勾配計算に備えた記録を作りません。`model.eval()` は評価モードへの切り替えです。このモデルにはDropoutなどがありませんが、勾配計算の無効化とは別の役割であることを押さえておきましょう。
 
-1.6の重みの確認と合わせて、未来の情報が出力へ影響しないことを確かめられます。
+1.6のAttention weightの確認と合わせて、未来の情報が出力へ影響しないことを確かめられます。
 
 ### この節で理解したこと
 
 GPTは各位置のベクトルを語彙数次元のlogitsへ変換します。これで入力token列から、すべての位置での次token予測までつながりました。
 
-## 1.11 Lossと学習 — 正解のtokenへ確率を寄せる
+## 1.11 lossと学習 — 正解のtokenへ確率を寄せる
 
 ### まず何が問題なのか
 
@@ -1226,7 +1193,7 @@ logは自然対数です。正解の確率が高いほどlossは小さくなり�
 
 Backpropagationが計算するのは「各パラメータを微小に変えたとき、lossがどちらへどの程度変化するか」です。optimizerはその勾配を使って実際の値を変えます。この教材では勾配の履歴を使って更新幅を調整するAdamWを使います。
 
-更新対象にはToken Embedding・Position Embedding・Wq/Wk/Wv・Attentionの出力変換・MLP・LayerNorm・LM Headが含まれます。入力ごとに計算されるQ・K・VやAttention weight自体を固定の表として学習するわけではありません。なおあるバッチで使わなかったEmbeddingの行など、毎回すべてのパラメータに非ゼロの勾配が付くわけではありません。
+更新対象にはToken Embedding・Position Embedding・Wq・Wk・Wv・Attentionの出力変換・MLP・LayerNorm・LM Headが含まれます。入力ごとに計算されるQ・K・VやAttention weight自体を固定の表として学習するわけではありません。なおあるバッチで使わなかったEmbeddingの行など、毎回すべてのパラメータに非ゼロの勾配が付くわけではありません。
 
 ### 実装
 
@@ -1256,7 +1223,7 @@ def batch_loss(
 ) -> torch.Tensor:
     logits = model(x)
     vocab_size = logits.shape[-1]
-    # B系列×T位置の予測と正解を、同じ順序でB*T組へ並べる。
+    # B系列×T位置の予測と正解を、同じ順序でB×T組へ並べる。
     flat_logits = logits.reshape(-1, vocab_size)
     flat_targets = y.reshape(-1)
     return F.cross_entropy(flat_logits, flat_targets)
@@ -1343,8 +1310,8 @@ def train_model(
         loss = batch_loss(model, x, y)
         if not torch.isfinite(loss).item():
             raise RuntimeError("lossが有限の値ではありません")
-        loss.backward()   # 勾配を計算する。この時点では重みは変わらない。
-        optimizer.step()  # 勾配に基づいて重みを更新する。
+        loss.backward()   # 勾配を計算する。この時点ではパラメータは変わらない。
+        optimizer.step()  # 勾配に基づいてパラメータを更新する。
 
     synchronize(device)
     elapsed = time.perf_counter() - started
@@ -1356,8 +1323,6 @@ def train_model(
 MPSの計算はCPUから非同期で実行されるため、時間を測る前後で完了を待ちます。ここで記録する時間は学習ループと定期評価を含む経過時間です。データ取得や文章生成は含めません。
 
 ### 実験 — 正解への確率とlossの関係を見る
-
-正解tokenのスコアだけを変え、lossがどちらへ変化するかを確かめます。
 
 まず、正解tokenのlogitを上げるとlossが下がることを確かめます。
 
@@ -1378,19 +1343,11 @@ print(F.cross_entropy(confident, target).item())
 
 ### この節で理解したこと
 
-学習は正解の次tokenへ高い確率を割り当てるように、モデル内のパラメータを更新する処理です。lossの計算・勾配の計算・パラメータの更新はそれぞれ別の段階です。
+学習は正解の次tokenへ高い確率を割り当てるように、モデル内のパラメータを更新する処理です。lossの計算・勾配計算・パラメータの更新はそれぞれ別の段階です。
 
 ## 1.12 文章生成 — 次token予測を繰り返す
 
-### まず何が問題なのか
-
-モデルが返すのは次token候補のスコアです。文章を作るには候補から1つ選び、その結果を次の入力へ戻す必要があります。
-
-また常に最も確率の高いtokenを選ぶか、分布から抽選するかによって、同じモデルでも続きを変えられます。
-
-### この技術が解決すること
-
-自己回帰生成で選んだtokenを入力へ追加しながら続きを作ります。モデルの重みを変えずに選び方を切り替えて生成結果の違いを観察します。
+1.1で見たとおり、生成は最後の位置のlogitsから1tokenを選び、入力へ追加して繰り返す処理です。この節ではその繰り返しを実装します。常に最大のlogitを選ぶか、分布から抽選するかで、同じモデルでも続きが変わります。モデルのパラメータを変えずに選び方だけを切り替えて、生成結果の違いを観察します。
 
 ### 仕組み
 
@@ -1479,15 +1436,15 @@ def generate(
 
 EOSを選んだら `break` で終了し、文章として表示するID列には追加しません。EOSが出なければ `max_new_tokens` まで繰り返します。
 
-`next_id` のshapeは `[1, 1]`、追加後の `ids` は `[1, T+1]` です。この関数では1つのpromptから生成します。学習で使うbatch sizeとは独立です。
+`next_id` のshapeは `[1, 1]`、追加後の `ids` は `[1, T+1]` です。この関数では1つのprompt（生成の起点として渡す入力）から生成します。学習で使うバッチサイズとは独立です。
 
 生成用の乱数を学習と分けるため、抽選は専用のCPU Generatorで行います。モデルをMPSで動かす場合も、分布をCPUへ移して抽選し、選んだIDだけを戻します。
 
-長さが上限を超えたら末尾の `context_length` tokenだけを使います。その窓に対して位置を0から付け直す方式です。学習時より長い履歴を記憶できるようになったわけではありません。Part 4のKV Cacheではこの位置の扱いも揃える必要があります。
+長さが上限を超えたら末尾の `context_length` tokenだけを使います。その窓に対して位置を0から付け直す方式です。学習時より長い履歴を記憶できるようになったわけではありません。
 
-### 実験 — 重みを変えずに候補の選び方を変える
+### 実験 — パラメータを変えずに候補の選び方を変える
 
-temperatureが変えるのはモデルの重みではなく、候補を選ぶ確率であることを確かめます。
+temperatureが変えるのはモデルのパラメータではなく、候補を選ぶ確率であることを確かめます。
 
 まず、モデルと切り離してtemperatureだけを変えます。
 
@@ -1510,9 +1467,7 @@ for temperature in (0.5, 1.0, 2.0):
 
 操作デモ：[temperatureと候補の選択を比べる](demos/part1.html#temperature)
 
-生成の観察：[実際のGPTの生成を1tokenずつ再生する](demos/part1.html#generation)
-
-前者は説明用のlogits、後者はPythonで記録した実際の分布と選択結果を使っています。
+操作デモ：[実際のGPTの生成を1tokenずつ再生する](demos/part1.html#generation)
 
 ### この節で理解したこと
 
@@ -1520,22 +1475,14 @@ for temperature in (0.5, 1.0, 2.0):
 
 ## 1.13 学習前後を比較する — lossと生成を一緒に見る
 
-### まず何が問題なのか
-
-コードが最後まで実行できても、何を学習したかは分かりません。見栄えのよい生成例が1つ出ただけでも、モデル全体の予測がよくなったとは判断できません。
-
-学習したテキストと未使用のテキストで予測を測り、同じpromptの続きを比較する必要があります。
-
-### この技術が解決すること
-
-固定した条件で学習前後のtrain loss・validation loss・生成結果を保存します。パラメータ数と経過時間も残し、モデルを拡張した後でも同じ方法で比較できるようにします。
+コードが最後まで実行できても、何を学習したかは分かりません。見栄えのよい生成例が1つ出ただけでも、モデル全体の予測がよくなったとは判断できません。そこで固定した条件で、trainとvalidationのテキストでlossを測り、同じpromptの続きを学習前後で比較します。パラメータ数と経過時間も残し、モデルを拡張した後でも同じ方法で比較できるようにします。
 
 ### 仕組み
 
 ```text
 同じ初期値から出発
   ├─ 更新前：固定した窓のlossと、固定したpromptの生成
-  ↓ trainデータだけでパラメータ更新
+  ↓ trainだけでパラメータ更新
   └─ 更新後：同じ窓のlossと、同じpromptの生成
 ```
 
@@ -1602,7 +1549,6 @@ def collect_generations(
 
 
 def run(config: Config) -> None:
-    torch.set_num_threads(config.cpu_threads)
     torch.manual_seed(config.seed)
     device = select_device()
     tokenizer = Tokenizer()
@@ -1613,12 +1559,12 @@ def run(config: Config) -> None:
     for parameter in model.parameters():
         parameter_count += parameter.numel()
     print("device:", device)
-    print("parameter数:", parameter_count)
+    print("パラメータ数:", parameter_count)
     print("train / validationのtoken数:", len(train_ids), len(validation_ids))
 
     prompts = ["日本の首都は", "猫は", "健康を保つためには、", "プログラミングを学ぶには、"]
     validation_texts = read_texts(DATA_DIR / "validation.jsonl")
-    # 学習に使わなかった文書の冒頭からも続きを生成する。
+    # validationの文書の冒頭からも続きを生成する。
     for index in range(2):
         prompts.append(validation_texts[index][:24])
     before = collect_generations(model, tokenizer, prompts, device)
@@ -1670,13 +1616,11 @@ if __name__ == "__main__":
     run(Config())
 ```
 
-`vars(config)` は設定オブジェクトの属性を辞書として取り出します。`state_dict()` はモデルの学習済みパラメータを取り出します。ここでは生成と後のFine-tuningに使うため、`model.pt` に重みと設定、`tokenizer.json` に語彙と分割規則を保存します。この2つは組にして使います。別のTokenizerで同じIDが別のtokenを指すと、モデルに違う入力を渡してしまうためです。optimizerの状態を保存していないため、学習途中から更新履歴まで完全に再開するcheckpointではありません。
-
-末尾の `if __name__ == "__main__"` はこのファイルを実行したときだけ `run` を呼ぶ指定です。他の確認コードから関数をimportしただけで学習が始まるのを防ぎます。
+`vars(config)` は設定オブジェクトの属性を辞書として取り出します。`state_dict()` はモデルの学習済みパラメータを取り出します。ここでは生成と後のFine-tuning（学習済みパラメータの追加学習）に使うため、`model.pt` にパラメータと設定、`tokenizer.json` に語彙と分割規則を保存します。この2つは組にして使います。別のTokenizerで同じIDが別のtokenを指すと、モデルに違う入力を渡してしまうためです。optimizerの状態を保存していないため、学習途中から更新履歴まで完全に再開するcheckpointではありません。
 
 ### 実験 — 学習で予測がどう変わったかを比べる
 
-ここまでの部品をまとめて動かし、パラメータ更新によって未使用データの予測と生成結果がどう変わるかを調べます。
+ここまでの部品をまとめて動かし、パラメータ更新によってvalidationでの予測と生成結果がどう変わるかを調べます。
 
 #### まず短く動かす
 
@@ -1692,7 +1636,7 @@ uv run python -m tiny_gpt.train
 
 #### 学習前後を比較する
 
-`steps` を10,000、`run_name` を `"part1"` に戻し、同じコマンドを実行します。各実行は同じseedでモデルを初期化するため、20回学習した重みからの続きにはなりません。
+`steps` を10,000、`run_name` を `"part1"` に戻し、同じコマンドを実行します。各実行は同じseedでモデルを初期化するため、20回学習したパラメータからの続きにはなりません。
 
 `runs/part1/` の結果を開き、次の表を手元の結果で埋めてください。lossの数値は `metrics.json` の `history`、生成文は `before`・`after` にあります。lossの推移は `loss.png` で見られます。
 
@@ -1715,7 +1659,7 @@ Apple M5 ProのMPS、Python 3.14.7・PyTorch 2.14.0・macOS 26.6で実行した�
 | train loss | 9.1897 | 5.5719 |
 | validation loss | 9.1951 | 5.7454 |
 
-![10,000回の学習に伴うtrain lossとvalidation lossの変化](images/part1-loss.png)
+![10,000回の更新に伴うtrain lossとvalidation lossの変化](images/part1-loss.png)
 
 同じ入力「プログラミングを学ぶには、」からsamplingで生成した結果を示します。temperatureは0.8、生成用のseedは100です。以下は冒頭の抜粋です。
 
@@ -1734,23 +1678,23 @@ Apple M5 ProのMPS、Python 3.14.7・PyTorch 2.14.0・macOS 26.6で実行した�
 
 一方プログラミングの学び方を説明する文章にはなっていません。greedyでは「また、」などの繰り返しも見られました。語句のつながりが整うことと話題を保って説明できることを分けて観察しましょう。
 
-固定した4つの入力文とvalidationの2文書の冒頭について、学習前後のsampling・greedyを記録しています。全条件と出力は `sample/results/japanese-10k.json` にあります。
+固定した4つのpromptとvalidationの2文書の冒頭について、学習前後のsampling・greedyを記録しています。全条件と出力は `sample/results/japanese-10k.json` にあります。
 
 操作デモ：[学習前と学習後の生成過程を比べる](demos/part1.html#generation)
 
 #### 結果をどう読むか
 
-**trainとvalidationのlossが下がった場合**、学習した窓だけでなく、未使用の窓でも正解tokenへ高い確率を割り当てられるようになったと考えられます。ただし同じコーパス内の評価なので、別の文体や質問への対応能力までは示していません。
+**trainとvalidationのlossが下がった場合**、trainの窓だけでなく、validationの窓でも正解tokenへ高い確率を割り当てられるようになったと考えられます。ただしvalidationはtrainと同じ1万文書から分けた文書なので、別の文体や質問への対応能力までは示していません。
 
-**trainだけが下がり、validationが上がった場合**、学習データへの適合が進みすぎている可能性があります。データ量・更新回数・モデル容量を変えて確かめます。1回の小さな揺れだけで過学習と決めず、曲線の傾向を見ましょう。
+**trainだけが下がり、validationが上がった場合**、trainへの適合が進みすぎている可能性があります。データ量・更新回数・モデル容量を変えて確かめます。1回の小さな揺れだけで過学習と決めず、曲線の傾向を見ましょう。
 
-**どちらも高いままの場合**、学習量が足りない、learning rateが合っていない、実装に問題がある、といった可能性があります。1.2の入力・正解のずれと1.10のCausal Maskの確認に戻り、その後で更新回数を増やします。
+**どちらも高いままの場合**、学習量が足りない、learning rate（パラメータを動かす幅、Configの `learning_rate`）が合っていない、実装に問題がある、といった可能性があります。1.2の入力・正解のずれと1.10の未来の情報が漏れていないかの確認に戻り、その後で更新回数を増やします。
 
 **lossが下がっても文章が不自然な場合**もあります。学習時は正しい過去tokenを入力しますが、生成時は自分の出したtokenを次の入力にします。1つの誤りでその後の入力が学習データから外れていくことがあります。候補を選ぶ方法の違いも結果に影響します。
 
 #### 選び方だけを変える
 
-`metrics.json` の `after` 内にある同じpromptの `sampling` と `greedy` を比較してください。モデルの重みは同じです。違うのはtokenの選び方だけです。
+`metrics.json` の `after` 内にある同じpromptの `sampling` と `greedy` を比較してください。モデルのパラメータは同じです。違うのはtokenの選び方だけです。
 
 次に、同じ学習済みモデルでtemperatureを変えます。`run` の `after = collect_generations(...)` の直後へ次を追加します。
 
@@ -1764,17 +1708,17 @@ for temperature in (0.7, 1.0, 1.3):
     print(text)
 ```
 
-重みは同じでも候補の選び方によって文章が変わります。この変化を「追加の知識を学習した」と解釈しないことがポイントです。
+パラメータは同じでも候補の選び方によって文章が変わります。
 
 ### この節で理解したこと
 
-学習の結果は未使用データのlossと生成例の両方から確認します。lossの低下、読みやすい文章、質問に正しく答える能力はそれぞれ別に確かめる必要があります。
+学習の結果はvalidationのlossと生成例の両方から確認します。lossの低下、読みやすい文章、質問に正しく答える能力はそれぞれ別に確かめる必要があります。
 
 ## Part 1で完成したもの
 
 文字列を入力すると、各位置で次tokenのlogitsを返すモデルができました。その内部ではtokenと位置をベクトルに変換し、1層のTransformer Blockで文脈を取り込んでいます。正解tokenとの誤差でパラメータを更新し、その予測を繰り返して続きを生成できます。
 
-学習で変わるのはこの計算に使うパラメータの値です。入力文やAttentionの重みがそのままモデルの中へ保存されるわけではありません。生成時には学習済みパラメータを使って入力に応じた表現と分布を計算します。
+学習で変わるのはこの計算に使うパラメータの値です。入力文やAttention weightがそのままモデルの中へ保存されるわけではありません。生成時には学習済みパラメータを使って入力に応じた表現と分布を計算します。
 
 ここまでのコードを使って次の問いを説明してみてください。
 

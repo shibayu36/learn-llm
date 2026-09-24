@@ -47,7 +47,7 @@ def make_batch(
     for start_tensor in starts:
         start = int(start_tensor.item())
         end = start + config.context_length
-        # 各位置の正解は1token先。入力と正解の長さはどちらもTにそろえる。
+        # 各位置の正解は1token先。入力と正解の長さはどちらもTに揃える。
         inputs.append(data[start:end])
         targets.append(data[start + 1:end + 1])
 

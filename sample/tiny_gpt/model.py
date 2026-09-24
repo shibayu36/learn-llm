@@ -19,10 +19,10 @@ def scaled_attention(
     if causal:
         future = torch.ones(length, length, dtype=torch.bool, device=q.device)
         future = torch.triu(future, diagonal=1)
-        # 未来のスコアを -∞ にすると、softmax後の重みが0になる。
+        # 未来のスコアを −∞ にすると、softmax後のAttention weightが0になる。
         scores = scores.masked_fill(future, float("-inf"))
 
-    # 各行について参照先の重みを合計1にし、その割合でValueを集める。
+    # 各行について参照先のAttention weightを合計1にし、その割合でValueを集める。
     weights = torch.softmax(scores, dim=-1)
     output = weights @ v
     return output, weights
@@ -115,6 +115,6 @@ class TinyGPT(nn.Module):
         x = x + self.position_embedding(positions)
         x = self.block(x)
         x = self.final_norm(x)
-        # 各位置から次token候補のスコアを出す。出力は [B, T, vocab_size]。
+        # 各位置から次token候補のlogitを出す。出力は [B, T, vocab_size]。
         logits = self.lm_head(x)
         return logits

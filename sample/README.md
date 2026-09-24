@@ -23,7 +23,7 @@ FineWeb-2 Edu Japaneseから1万文書を固定し、trainの9,000文書からBP
 uv run --frozen python -m tiny_gpt.train
 ```
 
-標準は1層・1ヘッド、`d_model=128`、context length 128、batch size 16、語彙8,192、約232万パラメータです。10,000回更新し、6つの同じpromptで学習前後のsampling・greedyを比べます。
+標準は1層・1ヘッド、`d_model=128`、context length 128、バッチサイズ16、語彙8,192、約232万パラメータです。10,000回更新し、6つの同じpromptで学習前後のsampling・greedyを比べます。
 
 設定は `tiny_gpt/config.py` にあります。短い動作確認では `steps` を20、`run_name` を `"part1-smoke"` にします。各実行は同じseedで新しいモデルを初期化します。
 
@@ -31,12 +31,12 @@ uv run --frozen python -m tiny_gpt.train
 
 | ファイル | 内容 |
 |---|---|
-| `metrics.json` | 実験条件、parameter数、loss、時間、学習前後の生成 |
+| `metrics.json` | 実験条件、パラメータ数、loss、時間、学習前後の生成 |
 | `loss.png` | train/validation lossの推移 |
-| `model.pt` | 学習済み重みとモデル設定 |
+| `model.pt` | 学習済みパラメータとモデル設定 |
 | `tokenizer.json` | そのモデルで使った語彙と分割規則 |
 
-モデルとTokenizerは組にして使います。`model.pt` は生成・追加学習の出発点となる重みです。optimizerの状態を含む完全な学習再開用checkpointではありません。
+モデルとTokenizerは組にして使います。`model.pt` は生成・追加学習の出発点となるパラメータです。optimizerの状態を含む完全な学習再開用checkpointではありません。
 
 実測したlossと生成例は `results/README.md` にあります。
 

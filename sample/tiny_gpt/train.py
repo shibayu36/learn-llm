@@ -20,7 +20,7 @@ def batch_loss(
 ) -> torch.Tensor:
     logits = model(x)
     vocab_size = logits.shape[-1]
-    # B系列×T位置の予測と正解を、同じ順序でB*T組へ並べる。
+    # B系列×T位置の予測と正解を、同じ順序でB×T組へ並べる。
     flat_logits = logits.reshape(-1, vocab_size)
     flat_targets = y.reshape(-1)
     return F.cross_entropy(flat_logits, flat_targets)
@@ -90,8 +90,8 @@ def train_model(
         loss = batch_loss(model, x, y)
         if not torch.isfinite(loss).item():
             raise RuntimeError("lossが有限の値ではありません")
-        loss.backward()   # 勾配を計算する。この時点では重みは変わらない。
-        optimizer.step()  # 勾配に基づいて重みを更新する。
+        loss.backward()   # 勾配を計算する。この時点ではパラメータは変わらない。
+        optimizer.step()  # 勾配に基づいてパラメータを更新する。
 
     synchronize(device)
     elapsed = time.perf_counter() - started
@@ -141,7 +141,6 @@ def collect_generations(
 
 
 def run(config: Config) -> None:
-    torch.set_num_threads(config.cpu_threads)
     torch.manual_seed(config.seed)
     device = select_device()
     tokenizer = Tokenizer()
@@ -152,12 +151,12 @@ def run(config: Config) -> None:
     for parameter in model.parameters():
         parameter_count += parameter.numel()
     print("device:", device)
-    print("parameter数:", parameter_count)
+    print("パラメータ数:", parameter_count)
     print("train / validationのtoken数:", len(train_ids), len(validation_ids))
 
     prompts = ["日本の首都は", "猫は", "健康を保つためには、", "プログラミングを学ぶには、"]
     validation_texts = read_texts(DATA_DIR / "validation.jsonl")
-    # 学習に使わなかった文書の冒頭からも続きを生成する。
+    # validationの文書の冒頭からも続きを生成する。
     for index in range(2):
         prompts.append(validation_texts[index][:24])
     before = collect_generations(model, tokenizer, prompts, device)

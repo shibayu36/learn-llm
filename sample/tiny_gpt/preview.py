@@ -9,7 +9,6 @@ from tiny_gpt.train import select_device
 
 def main() -> None:
     config = Config()
-    torch.set_num_threads(config.cpu_threads)
     torch.manual_seed(config.seed)
     device = select_device()
     tokenizer = Tokenizer()
@@ -18,7 +17,7 @@ def main() -> None:
     for parameter in model.parameters():
         parameter_count += parameter.numel()
 
-    print("学習前のGPT / device:", device, "/ parameter数:", parameter_count)
+    print("学習前のGPT / device:", device, "/ パラメータ数:", parameter_count)
     print(generate(model, tokenizer, "プログラミングを学ぶには、", 80, device))
 
 
