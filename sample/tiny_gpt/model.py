@@ -17,7 +17,7 @@ def scaled_attention(
     scores = scores / math.sqrt(key_size)
 
     if causal:
-        future = torch.ones(length, length, dtype=torch.bool, device=q.device)
+        future = torch.ones(length, length, dtype=torch.bool)
         future = torch.triu(future, diagonal=1)
         # 未来のスコアを −∞ にすると、softmax後のAttention weightが0になる。
         scores = scores.masked_fill(future, float("-inf"))
@@ -109,7 +109,7 @@ class TinyGPT(nn.Module):
         if length == 0 or length > self.context_length:
             raise ValueError("入力の長さがcontext_lengthの範囲外です")
 
-        positions = torch.arange(length, device=ids.device)
+        positions = torch.arange(length)
         # tokenの表現 [B, T, D] に、全系列で共通の位置表現 [T, D] を足す。
         x = self.token_embedding(ids)
         x = x + self.position_embedding(positions)

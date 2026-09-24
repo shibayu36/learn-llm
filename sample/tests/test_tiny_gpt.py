@@ -43,7 +43,7 @@ class TinyGPTTests(unittest.TestCase):
     def test_batch_targets_are_shifted_one_token(self) -> None:
         data = torch.arange(40)
         generator = torch.Generator().manual_seed(42)
-        x, y = make_batch(data, self.config, generator, torch.device("cpu"))
+        x, y = make_batch(data, self.config, generator)
         self.assertEqual(x.shape, (2, 8))
         torch.testing.assert_close(y, x + 1)
 
@@ -95,9 +95,8 @@ class TinyGPTTests(unittest.TestCase):
 
     def test_generation_seed_and_context_limit(self) -> None:
         model = TinyGPT(self.tokenizer.vocab_size, self.config)
-        device = torch.device("cpu")
-        first = generate(model, self.tokenizer, "猫は", 12, device, seed=5)
-        second = generate(model, self.tokenizer, "猫は", 12, device, seed=5)
+        first = generate(model, self.tokenizer, "猫は", 12, seed=5)
+        second = generate(model, self.tokenizer, "猫は", 12, seed=5)
         self.assertEqual(first, second)
         self.assertTrue(first.startswith("猫は"))
         with self.assertRaises(ValueError):
@@ -109,7 +108,7 @@ class TinyGPTTests(unittest.TestCase):
             model.lm_head.weight.zero_()
             model.lm_head.bias.zero_()
             model.lm_head.bias[self.tokenizer.eos_id] = 100
-        output = generate(model, self.tokenizer, "猫は", 12, torch.device("cpu"), method="greedy")
+        output = generate(model, self.tokenizer, "猫は", 12, method="greedy")
         self.assertEqual(output, "猫は")
 
 

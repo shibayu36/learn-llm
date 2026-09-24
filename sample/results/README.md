@@ -11,7 +11,7 @@
 ## 日本語版の条件
 
 - 実行日：2026-09-24
-- 機器：Apple M5 Pro、macOS 26.6
+- 機器：Apple M5 Pro、macOS 26.6。CPUで実行（GPUは使わない）
 - Python 3.14.7、PyTorch 2.14.0、Matplotlib 3.11.2
 - データ：FineWeb-2 Edu Japaneseの固定1万文書。train 9,000文書・validation 1,000文書
 - Tokenizer：1文字1token。trainに出てきた文字にEOS・UNKを加えた語彙4,052
@@ -24,7 +24,7 @@
 | train loss | 8.5125 | 3.5022 |
 | validation loss | 8.5111 | 3.5536 |
 
-学習と定期評価の時間は約69秒でした。データ取得・語彙作成・初期化・文章生成・グラフ保存を含みません。lossは各時点で同じ窓を使って測っています。
+学習と定期評価の時間はCPUで約171秒（約3分）でした。データ取得・語彙作成・初期化・文章生成・グラフ保存を含みません。lossは各時点で同じ窓を使って測っています。
 
 ![日本語データでのloss curve](japanese-10k-loss.png)
 

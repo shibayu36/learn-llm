@@ -133,7 +133,7 @@ tiny-gpt-handson/
     └── part1/           実行時に作成する結果の保存先
 ```
 
-`model.py` は部品を順に追加し、1.10でモデル全体がつながります。学習コマンドを実行するのは1.13です。
+`model.py` は1.3で `TinyGPT` の骨格を作り、節ごとに部品を追加して、1.10でモデル全体がつながります。学習コマンドを実行するのは1.13です。
 
 各節の動作確認・実験のコードは、作業用ディレクトリの `main.py` に保存し `uv run python main.py` で実行します。次の節に進むときは中身を置き換えてください。`tiny_gpt/` の各ファイルには部品だけを置き、実行の入口は `main.py` に集約します。最後の1.13では、`main.py` は学習を呼び出すだけになります。
 
@@ -221,19 +221,22 @@ class Config:
 
 冒頭で動かしたGPTは、次のtokenを1つ選んで入力へ追加する処理を繰り返していました。この節では、その「次のtokenを予測する」をどんな計算問題として定義するかを決めます。ここで決めた問題を、1.2以降の部品で1つずつ解いていきます。
 
-### 仕組み
-
-「日本の首都は東京です。」をtokenへ分けて末尾の「。」を除いて入力すると、各位置で次のtokenのスコア（1.10でlogitと呼びます）を返します。
+「日本の首都は東京です。」をtokenへ分けて末尾の「。」を除いて入力すると、GPTは各位置で次のtokenのスコア（1.10でlogitと呼びます）を返します。
 
 | 入力の位置 | その位置までの入力 | 予測する正解token |
 |---|---|---|
-| 0 | 日本の | 首都 |
-| 1 | 日本の／首都 | は |
-| 2 | 日本の／首都／は | 東京 |
-| 3 | 日本の／首都／は／東京 | です |
-| 4 | 日本の／首都／は／東京／です | 。 |
+| 0 | 日 | 本 |
+| 1 | 日本 | の |
+| 2 | 日本の | 首 |
+| 3 | 日本の首 | 都 |
+| 4 | 日本の首都 | は |
+| 5 | 日本の首都は | 東 |
+| 6 | 日本の首都は東 | 京 |
+| 7 | 日本の首都は東京 | で |
+| 8 | 日本の首都は東京で | す |
+| 9 | 日本の首都は東京です | 。 |
 
-1系列の出力shapeは `[1, 5, vocab_size]` です。位置2で「東京」を予測するとき、入力の位置3にある「東京」を見せてはいけません。この制限は1.6のCausal Maskで実装します。
+1系列の出力shapeは `[1, 10, vocab_size]` です。位置5で「東」を予測するとき、入力の位置6にある「東」を見せてはいけません。この制限は1.6のCausal Maskで実装します。
 
 文章は長さが決まっていないので、文章全体を1つの出力として予測することはできません。代わりに文章の確率を次のように分け、各項を同じモデルで予測します。
 
@@ -246,9 +249,7 @@ P(x₁, x₂, ..., xₙ)
 
 この教材では過去と現在の位置を参照するSelf-Attentionを使い、別のEncoderの出力を読む仕組みを持たない **Decoder-only** 構成を作ります。
 
-### 実装
-
-モデルが完成すると、呼び出し方は次の形になります。この断片は全体像を読むためのものです。実行に必要な部品はこの後で作ります。
+モデルが完成すると、呼び出し方は次の形になります。この節ではまだ実行できません。1.3から部品を作り始め、1.10でこの形になります。
 
 ```python
 token_ids = torch.tensor([[3, 5, 8, 2]], dtype=torch.long)
@@ -264,17 +265,11 @@ GPTの基本的な仕事は過去のtoken列を条件に次のtokenを予測す�
 
 ## 1.2 学習データとTokenization — 文字列を予測問題に変える
 
-### まず何が問題なのか
+GPTを学習させるには、「ここまでの入力」と「その次に来るtoken」の組が大量に必要です。次のtokenを予測する問題なら、人が別途回答を書く必要はありません。元の文章の続きがそのまま正解になるので、文章そのものから学習問題を作れます。
 
-ニューラルネットワークで行う行列計算には数値が必要です。文字列のままではEmbedding行列のどの行を取り出すか指定できません。
+ただしモデルが扱えるのは数値のTensorだけで、文字列をそのまま入力できません。学習問題を作る前に、文字列を数値の列へ変える必要があります。
 
-また学習には入力だけでなく正解も必要です。次のtokenを予測する問題なら、人が別途回答を書く必要はなく、元の文章の続きが正解になります。
-
-### この技術が解決すること
-
-Tokenizerで文字列をtokenへ分割し、それぞれを整数IDへ変換します。さらに同じtoken列から1tokenずらした2つの系列を切り出し、入力と正解を作ります。
-
-### 仕組み
+そこでTokenizerで文字列をtokenへ分割し、それぞれを整数IDへ変換します。さらに同じtoken列から1tokenずらした2つの系列を切り出し、入力と正解を作ります。
 
 今回のTokenizerは1文字を1tokenにします。「日本の首都は東京です。」は11個のtokenになります。区切りを `/` で表すと、入力と正解の対応は次のとおりです。
 
@@ -287,7 +282,7 @@ Tokenizerで文字列をtokenへ分割し、それぞれを整数IDへ変換し�
 B系列をまとめると：x.shape = [B, T]、y.shape = [B, T]
 ```
 
-位置0では「日」から「本」、位置1では「日／本」から「の」を予測します。`y` は「一度に生成すべき別の文章」ではなく、各位置に対応する正解を並べたものです。
+位置0では「日」から「本」、位置1では「日 / 本」から「の」を予測します。`y` は「一度に生成すべき別の文章」ではなく、各位置に対応する正解を並べたものです。
 
 **語彙はtrainの文書に出てきた文字を並べた表です。** 文字をコード順に並べ、表の添字をtoken IDにします。今回のデータには4,050種類の文字が出てきます。実際のGPTは、よく現れる文字の並びを1つのtokenにまとめるBPEという方式を使い、語彙も数万から十数万あります。仕組みの理解には1文字単位で十分なので、この教材では文字単位のまま進めます。
 
@@ -359,13 +354,6 @@ class Tokenizer:
             chars.update(text)
         return cls([EOS_TOKEN, UNK_TOKEN] + sorted(chars))
 
-    @classmethod
-    def load(cls, path: Path) -> "Tokenizer":
-        return cls(json.loads(path.read_text(encoding="utf-8")))
-
-    def save(self, path: Path) -> None:
-        path.write_text(json.dumps(self.tokens, ensure_ascii=False), encoding="utf-8")
-
     def encode(self, text: str) -> list[int]:
         token_ids: list[int] = []
         for char in text:
@@ -379,7 +367,7 @@ class Tokenizer:
         return "".join(chars)
 ```
 
-`Tokenizer.from_texts` がtrainの文字から語彙を作り、`encode` と `decode` が文字列とID列を変換します。`save` と `load` は学習したモデルと語彙を組にして保存するためのもので、1.13で使います。
+`Tokenizer.from_texts` がtrainの文字から語彙を作り、`encode` と `decode` が文字列とID列を変換します。
 
 **`main.py` を次の内容にして実行します。** 語彙はtrainの文書から毎回作ります。1秒もかからず、同じ文書からは同じ語彙ができます。
 
@@ -399,78 +387,49 @@ print("復元:", tokenizer.decode(token_ids))
 uv run python main.py
 ```
 
-続いて、各文書をID列へ変換します。文書の末尾にはEOSを付けます。
+続いて、全文書をつないで1本のtoken列にします。文書の末尾にはEOSを付けます。
 
-文書をつないだtoken列から連続する範囲を切り出します。この範囲を「窓」と呼びます。1組の入力・正解を作るには `T+1` tokenが必要です。先頭T個を入力、その1つ先からT個を正解にします。
-
-**保存先：`tiny_gpt/dataset.py`。**
+**保存先：`tiny_gpt/dataset.py`。このファイルは1.11で拡張します。**
 
 ```python
 import torch
 
-from tiny_gpt.config import Config
-from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
+from tiny_gpt.tokenizer import Tokenizer
 
 
 def encode_documents(texts: list[str], tokenizer: Tokenizer) -> torch.Tensor:
+    # 何千もの文書を、文書の区切りにEOSを挟んで1本の長いtoken列につなぐ。
+    # 例: ["骨粗しょう症とは", "私たちは呼吸"] という2文書なら
+    #   骨 粗 し ょ う 症 と は <eos> 私 た ち は 呼 吸 <eos>
+    # という1本の列になる（実際は1文字が1つのIDに置き換わる）。
+    # 学習ではこの長い列のどこからでも切り出して使う。
     token_ids: list[int] = []
     for text in texts:
         token_ids.extend(tokenizer.encode(text))
         # 別の文書へ移る境界を、専用のtokenで表す。
+        # これがないと「…呼吸<eos>」の続きが次の文書の冒頭に見え、
+        # モデルは無関係な文書同士が続いていると学習してしまう。
         token_ids.append(tokenizer.eos_id)
     return torch.tensor(token_ids, dtype=torch.long)
-
-
-def load_data(
-    tokenizer: Tokenizer, config: Config,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    train_texts = read_texts(DATA_DIR / "train.jsonl")
-    validation_texts = read_texts(DATA_DIR / "validation.jsonl")
-    train_ids = encode_documents(train_texts, tokenizer)
-    validation_ids = encode_documents(validation_texts, tokenizer)
-    return train_ids, validation_ids
-
-
-def make_batch(
-    data: torch.Tensor,
-    config: Config,
-    generator: torch.Generator,
-    device: torch.device,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    starts = torch.randint(
-        low=0,
-        high=len(data) - config.context_length,
-        size=(config.batch_size,),
-        generator=generator,
-    )
-    inputs: list[torch.Tensor] = []
-    targets: list[torch.Tensor] = []
-
-    for start_tensor in starts:
-        start = int(start_tensor.item())
-        end = start + config.context_length
-        # 各位置の正解は1token先。入力と正解の長さはどちらもTに揃える。
-        inputs.append(data[start:end])
-        targets.append(data[start + 1:end + 1])
-
-    x = torch.stack(inputs).to(device)
-    y = torch.stack(targets).to(device)
-    return x, y
 ```
 
-`torch.stack` は同じ長さの系列を並べ、`[T]` をB個集めて `[B, T]` にします。`generator` はバッチ選択用の乱数の状態です。後で評価や生成が学習用の乱数を進めないように分けます。
+### 動作確認 — 文書のつなぎ目と、入力と正解の対応を見る
 
-窓が文書の境界をまたぐことはあります。EOSは境界を示すtokenで、Attentionを遮るMaskではありません。この実装では同じ窓に入った前の文書も参照できますが、trainとvalidationの境界をまたぐことはありません。
-
-### 動作確認 — 入力と正解の対応を見る
-
-各位置の正解が「1token先」になっているかをID列と復元した文章で確かめます。
+短い2文書をつないで、境界にEOSが入ることを確かめます。続いて、各位置の正解が「1token先」になっているかをID列と復元した文章で確かめます。
 
 ```python
 import torch
+from tiny_gpt.dataset import encode_documents
 from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
 
-tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
+train_texts = read_texts(DATA_DIR / "train.jsonl")
+tokenizer = Tokenizer.from_texts(train_texts)
+
+joined = encode_documents(["日本の首都は東京です。", "猫は"], tokenizer)
+print("つないだID:", joined.tolist())
+print("復元:", tokenizer.decode(joined.tolist()))
+print("trainのtoken数:", len(encode_documents(train_texts, tokenizer)))
+
 text = "日本の首都は東京です。"
 ids = torch.tensor(tokenizer.encode(text), dtype=torch.long)
 x = ids[:-1]
@@ -482,6 +441,8 @@ print(x.shape, y.shape)
 assert tokenizer.decode(tokenizer.encode(text)) == text
 ```
 
+復元した文字列は「日本の首都は東京です。<eos>猫は<eos>」になります。EOSはIDが0なので、つないだID列では2文書の末尾に `0` が入ります。trainの文書全体をつなぐと約593万tokenになります。
+
 入力は「日本の首都は東京です」、正解は「本の首都は東京です。」になり、shapeはどちらも `[10]` です。
 
 trainに出てこない文字を `encode` するとUNKのIDになり、`decode` すると `<unk>` と表示されます。
@@ -492,17 +453,15 @@ Tokenizerは文字列をtoken ID列へ変換します。入力と正解を1token
 
 ## 1.3 Token Embedding — 整数のラベルを学習できるベクトルへ変える
 
-### まず何が問題なのか
+次tokenを予測するには「今のtokenがどんな性質を持つか」が必要です。たとえば「。」は文の終わりを表し、「は」は名詞の後に来やすい助詞です。こうした性質があるからこそ、その後に何が来やすいかを絞れます。
 
-token IDは単なる番号です。IDが10と11だからといって、その2つのtokenの使われ方が似ているとは限りません。IDをそのまま量として計算に使うと、番号の大小や差を持ち込んでしまいます。
+ところが1.2で作ったtoken IDは「どのtokenか」を区別するための番号にすぎず、こうした性質を入れる場所がありません。IDが10と11だからといって、その2つのtokenの使われ方が似ているとは限りません。IDをそのまま量として計算に使うと、番号の大小や差という無関係な情報を持ち込んでしまいます。
 
-### この技術が解決すること
+そこで各tokenに、性質を保持するための入れ物としてベクトルを割り当てます。これがToken Embeddingです。ベクトルは複数の成分を持つので、1つのtokenについて「文の終わりらしさ」「助詞らしさ」のような複数の性質を同時に持てます。以降の計算はIDが何番かではなく、このベクトルが表す性質をもとに進みます。
 
-各tokenに学習可能なベクトルを割り当てます。次token予測に役立つ表現を学習を通じて作れるようにします。
+ベクトルの値は人が決めるのではなく、次token予測の学習で決まります。その結果、使われ方が似たtokenは似たベクトルへ近づいていきます。
 
-### 仕組み
-
-Embeddingは `[vocab_size, D]` の表です。token IDに対応する行を取り出します。
+実体は `[vocab_size, D]` の表です。token IDに対応する行を取り出すと、そのtokenのベクトルになります。
 
 ```text
 Embedding行列 E： [vocab_size, D]
@@ -512,18 +471,56 @@ Embedding行列 E： [vocab_size, D]
 tokenベクトル = E[token ID]
 ```
 
-表の中身は最初は乱数で初期化します。学習中に更新されるのはIDの番号ではなく、この表の値です。ベクトルの各成分に人が「動物らしさ」「色らしさ」などの意味を先に割り当てるわけではありません。
+表の中身は最初は乱数で初期化します。学習中に更新されるのはIDの番号ではなく、この表の値です。ベクトルの各成分に人が「文の終わりらしさ」「助詞らしさ」などの意味を先に割り当てるわけではありません。学習の結果として、性質が成分の組み合わせに表れます。
 
 ### 実装
 
-`nn.Embedding` を使います。たとえば語彙数6、ベクトルの次元4なら次のように表を作れます。モデルへの組み込みは1.10で行います。
+この節からモデル本体の `TinyGPT` を作り始めます。最初はToken Embeddingだけを持ち、`forward` はIDから取り出したtokenの表現をそのまま返します。以降の節で部品を1つずつ足し、1.10で次tokenのlogitを返す形にします。
+
+表は `nn.Embedding` で作ります。行数が語彙数、列数がConfigの `d_model` です。
+
+**`tiny_gpt/model.py` を次の内容で作成します。**
 
 ```python
-token_embedding = nn.Embedding(6, 4)
-token_vectors = token_embedding(ids)
+import torch
+from torch import nn
+
+from tiny_gpt.config import Config
+
+
+class TinyGPT(nn.Module):
+    def __init__(self, vocab_size: int, config: Config) -> None:
+        super().__init__()
+        self.token_embedding = nn.Embedding(vocab_size, config.d_model)
+
+    def forward(self, ids: torch.Tensor) -> torch.Tensor:
+        # ID [B, T] のそれぞれについて、表の行を取り出す。結果は [B, T, D]。
+        x = self.token_embedding(ids)
+        return x
 ```
 
-`ids` が `[[2, 5, 2]]` なら取り出すのは表のID 2・ID 5・ID 2に対応する行です。入力のshape `[1, 3]` が出力の `[1, 3, 4]` に変わります。最初と最後の位置は同じ行を取り出すため、同じベクトルになります。
+### 動作確認 — 同じIDが同じ行を取り出すか
+
+表示して読めるように、語彙数6・`d_model` 4の小さなモデルを作ります。
+
+**`main.py` を次の内容にして実行します。**
+
+```python
+import torch
+from tiny_gpt.config import Config
+from tiny_gpt.model import TinyGPT
+
+config = Config()
+config.d_model = 4
+model = TinyGPT(6, config)
+
+ids = torch.tensor([[2, 5, 2]])
+x = model(ids)
+print(x.shape)
+print(x[0])
+```
+
+`ids` が `[[2, 5, 2]]` なので、取り出すのは表のID 2・ID 5・ID 2に対応する行です。入力のshape `[1, 3]` が出力の `[1, 3, 4]` に変わります。最初と最後の位置は同じ行を取り出すため、表示された3行のうち1行目と3行目は同じベクトルです。
 
 同じtokenでも文脈によって役割は変わりますが、Embeddingを取り出した直後は他のtokenを参照していません。文脈を反映する処理はこの後で追加します。
 
@@ -543,21 +540,15 @@ token_vectors = token_embedding(ids)
 
 ### この節で理解したこと
 
-Embeddingはtokenを学習可能なベクトルに変換する表です。文脈を処理する前の各tokenの出発点となる表現を作ります。
+Embeddingはtokenを学習可能なベクトルに変換する表です。IDという番号では持てないtokenの性質をベクトルとして保持し、以降の計算で使えるようにします。文脈を処理する前の各tokenの出発点となる表現です。
 
 ## 1.4 Position情報 — 同じtokenがどこにあるかを表す
 
-### まず何が問題なのか
+文章の意味は、どのtokenが並ぶかだけでなく、どの順で並ぶかで決まります。「犬が猫を追う」と「猫が犬を追う」は同じ文字の集まりですが、追う側と追われる側が逆です。次token予測でも同じで、同じtokenの集まりでも並びが違えば次に来やすいtokenは変わります。予測のためには、各tokenが何番目にあるかをモデルが分かる必要があります。
 
-Token Embeddingではtoken列 `[猫, 犬]` と `[犬, 猫]` は同じ2つのベクトルを逆順に並べたものになります。Position情報もMaskもないSelf-Attentionは、入力を並べ替えると出力も同じように並べ替わります。順序に固有の手掛かりを持っていないためです。
+ところが1.3までの処理では、各位置のベクトルはそのtokenのIDだけで決まります。token列 `[猫, 犬]` と `[犬, 猫]` は同じ2つのベクトルを逆に並べただけで、位置の情報はどこにも入っていません。同じtokenが2回出る `[猫, 犬, 猫]` では、最初と最後の「猫」はまったく同じベクトルになり、どちらが前かを区別できません。1.5で足すSelf-Attentionは各位置のベクトルの中身だけを見て情報を集めるので、ここで位置を入れておかないと後の処理でも順序を使えません。
 
-文章を扱うには内容だけでなく並び方も区別したい場面があります。
-
-### この技術が解決すること
-
-「どのtokenか」に加えて「何番目の位置か」をモデルへ渡します。このPartでは位置にも学習可能なベクトルを割り当てるPosition Embeddingを使います。
-
-### 仕組み
+そこで「どのtokenか」に加えて「何番目の位置か」をベクトルに入れます。このPartでは位置にも学習可能なベクトルを割り当てるPosition Embeddingを使い、tokenのベクトルへ次のように足し合わせます。
 
 ```text
 X[b, t] = token_embedding[ids[b, t]] + position_embedding[t]
@@ -573,17 +564,57 @@ position_embedding(位置)   [T, D]
 
 ### 実装
 
-入力の長さに応じて `0, 1, 2, ...` という位置IDを作り、位置ベクトルを取り出します。1.10では次の処理をモデルの `forward` へ入れます。
+位置の表を `TinyGPT` に足します。行数はConfigの `context_length` です。`forward` では入力の長さに応じて `0, 1, 2, ...` という位置IDを作り、位置ベクトルを取り出してToken Embeddingへ足します。
+
+**`model.py` の `TinyGPT` を次のクラスへ置き換えます。**
 
 ```python
-positions = torch.arange(ids.shape[1], device=ids.device)
-x = self.token_embedding(ids)
-x = x + self.position_embedding(positions)
+class TinyGPT(nn.Module):
+    def __init__(self, vocab_size: int, config: Config) -> None:
+        super().__init__()
+        self.context_length = config.context_length
+        self.token_embedding = nn.Embedding(vocab_size, config.d_model)
+        self.position_embedding = nn.Embedding(
+            config.context_length, config.d_model
+        )
+
+    def forward(self, ids: torch.Tensor) -> torch.Tensor:
+        length = ids.shape[1]
+        if length == 0 or length > self.context_length:
+            raise ValueError("入力の長さがcontext_lengthの範囲外です")
+
+        positions = torch.arange(length)
+        # tokenの表現 [B, T, D] に、全系列で共通の位置表現 [T, D] を足す。
+        x = self.token_embedding(ids)
+        x = x + self.position_embedding(positions)
+        return x
 ```
 
-token列 `[猫, 犬, 猫]` の最初と最後の「猫」はToken Embeddingでは同じベクトルです。そこへ位置0と位置2の別々のベクトルを足すので、位置を区別できる表現になります。
+この方式では用意した位置の表より長い系列をそのまま入力できません。たとえば位置の表が128行なら使える位置は0〜127です。`forward` の先頭で長さを確かめているのはこのためです。
 
-この方式では用意した位置の表より長い系列をそのまま入力できません。たとえば位置の表が128行なら使える位置は0〜127です。
+### 動作確認 — 同じIDでも位置が違えば別のベクトルになるか
+
+1.3と同じ入力で、1行目と3行目が変わるかを見ます。
+
+**`main.py` を次の内容にして実行します。**
+
+```python
+import torch
+from tiny_gpt.config import Config
+from tiny_gpt.model import TinyGPT
+
+config = Config()
+config.d_model = 4
+model = TinyGPT(6, config)
+
+ids = torch.tensor([[2, 5, 2]])
+x = model(ids)
+print(x.shape)
+print(x[0])
+print(torch.equal(x[0, 0], x[0, 2]))
+```
+
+`x` のshapeは `[1, 3, 4]` のままです。token列 `[猫, 犬, 猫]` の最初と最後の「猫」はToken Embeddingでは同じベクトルです。そこへ位置0と位置2の別々のベクトルを足すので、表示された1行目と3行目は違うベクトルになり、最後の比較は `False` になります。1.3では同じだった2行が、位置を区別できる表現に変わりました。
 
 ### この節で理解したこと
 
@@ -591,19 +622,13 @@ Position情報はtokenの内容に加えて位置や順序を計算へ持ち込�
 
 ## 1.5 1-head Self-Attention — 他のtokenから情報を集める
 
-### まず何が問題なのか
+次に来るtokenは、今のtokenだけでは決まりません。たとえば「日本の首都は」の続きを予測するには、直前の「は」だけでなく、前にある「日本」「首都」の文字の情報も必要です。予測のためには、各位置が他の位置から必要な情報を集められる必要があります。
 
-ここまでの処理では各位置のベクトルは「自分が何のtokenで、何番目にいるか」だけで決まります。他のtokenの内容は入っていません。
+ところがここまでの処理では、各位置のベクトルは「自分が何のtokenで、何番目にいるか」だけで決まります。他のtokenの内容は入っていません。過去のベクトルを単純に平均する方法もありますが、どの入力でも同じ割合で混ぜることになります。どの位置の情報が必要かは入力によって変わるので、固定の割合では足りません。
 
-たとえば「日本の首都は」の続きを予測するには、直前の「は」だけでなく、「日本の」「首都」の情報も必要です。過去のベクトルを単純に平均する方法もありますが、どの入力でも同じ割合で混ぜることになります。
+そこでSelf-Attentionを使います。Self-Attentionは各位置について「他の位置の情報をどの割合で集めるか」を入力に応じて計算します。参照する側も参照される側も同じ入力列から作るため、Self-Attentionと呼びます。
 
-### この技術が解決すること
-
-Self-Attentionは各位置について「他の位置の情報をどの割合で集めるか」を入力に応じて計算します。参照する側も参照される側も同じ入力列から作るため、Self-Attentionと呼びます。
-
-### 仕組み
-
-各tokenのベクトル `X` を3つの別々の線形変換へ通します。
+そのために、各tokenのベクトル `X` を3つの別々の線形変換へ通します。
 
 | ベクトル | この計算での役割 |
 |---|---|
@@ -673,16 +698,10 @@ QとKが決めるのは混ぜる割合です。最終的に混ぜる対象はVal
 
 まず、Q・K・Vから重み付き和を計算する関数を作ります。続いて、入力をQ・K・Vへ変換するモジュールを作ります。
 
-**保存先：`tiny_gpt/model.py`。このファイルは以降の節で拡張します。**
+**`model.py` の先頭に `import math` を足し、`TinyGPT` の前に次の関数とクラスを追加します。**
 
 ```python
 import math
-
-import torch
-from torch import nn
-from torch.nn import functional as F
-
-from tiny_gpt.config import Config
 
 
 def scaled_attention(
@@ -722,9 +741,27 @@ class SelfAttention(nn.Module):
 
 最後の `self.output` は集めた情報を次の処理へ渡す線形変換です。
 
-`nn.Module` を継承したクラスで各モジュールを属性へ代入すると、PyTorchがそのパラメータを登録します。`model.parameters()` や `model.to(device)` が中のモジュールまで扱えるのは、この登録があるためです。
+`nn.Module` を継承したクラスで各モジュールを属性へ代入すると、PyTorchがそのパラメータを登録します。`model.parameters()` が中のモジュールのパラメータまで返すのは、この登録があるためです。
 
 **この時点のAttentionは未来のtokenも参照できます。次の節でMaskを追加してからGPTの学習に使います。**
+
+### 動作確認 — 入力からQ・K・Vを作って通す
+
+`SelfAttention` に `[B, T, D]` の入力を渡し、Attention weightと出力のshapeを確かめます。
+
+```python
+import torch
+from tiny_gpt.model import SelfAttention
+
+torch.manual_seed(0)
+attention = SelfAttention(4)
+x = torch.randn(1, 3, 4)
+output, weights = attention(x)
+print(output.shape, weights.shape)
+print(weights[0])
+```
+
+出力は `[1, 3, 4]`、Attention weightは `[1, 3, 3]` です。各行の合計は1です。位置0の行にも位置1・2への重みが付いています。まだ未来のtokenを参照できるためです。
 
 ### 実験 — 混ぜる割合と混ぜる情報を分けて変える
 
@@ -758,19 +795,13 @@ Self-AttentionはQ・Kから参照先ごとのAttention weightを作り、その
 
 ## 1.6 Causal Mask — 次に予測するはずのtokenを見せない
 
-### まず何が問題なのか
+学習では、1つの系列のすべての位置の予測を一度に計算したいです。1.2で作った入力と正解は位置ごとに対応しているので、1回の計算でT個の位置それぞれの次tokenを予測させれば、1系列からT個の学習問題をまとめて扱えます。ただし各位置には、その位置で予測するべき答えを見せてはいけません。
 
-入力が「日本の／首都／は／東京／です」、正解が「首都／は／東京／です／。」のとき、位置0の正解は「首都」です。その「首都」は入力の位置1にすでに存在しています。
+ところが1.5のSelf-Attentionは、すべての位置を参照できます。入力が「日本の首都は東京です」、正解が「本の首都は東京です。」のとき、位置0の正解は「本」です。その「本」は入力の位置1にすでに存在しています。未来まで参照できるモデルは位置1から「本」の情報を持ってくるだけで簡単に予測できてしまいます。生成時には未知の次tokenが入力にないので、学習時だけ答えを見る状態になります。
 
-未来まで参照できるモデルは位置1から「首都」の情報を持ってくるだけで簡単に予測できてしまいます。生成時には未知の次tokenが入力にないので、学習時だけ答えを見る状態になります。
+そこで各位置から自分より後ろの位置を参照できないようにします。これがCausal Maskです。過去と現在だけで予測させ、生成時にも使える規則を学習させます。
 
-### この技術が解決すること
-
-各位置から自分より後ろの位置を参照できないようにします。過去と現在だけで予測させ、生成時にも使える規則を学習させます。
-
-### 仕組み
-
-スコア行列のうち未来に対応する場所を負の無限大にしてからsoftmaxを計算します。
+具体的には、スコア行列のうち未来に対応する場所を負の無限大にしてからsoftmaxを計算します。
 
 ```text
 参照される位置 →     0    1    2    3
@@ -801,7 +832,7 @@ def scaled_attention(
     scores = scores / math.sqrt(key_size)
 
     if causal:
-        future = torch.ones(length, length, dtype=torch.bool, device=q.device)
+        future = torch.ones(length, length, dtype=torch.bool)
         future = torch.triu(future, diagonal=1)
         # 未来のスコアを −∞ にすると、softmax後のAttention weightが0になる。
         scores = scores.masked_fill(future, float("-inf"))
@@ -849,15 +880,11 @@ Causal Maskは未来の正解を参照する抜け道を防ぎます。これに
 
 ## 1.7 Feed Forward Network / MLP — 各位置の表現を加工する
 
-### まず何が問題なのか
+Attentionで、各位置は過去の位置から情報を集められるようになりました。ただし集めた情報は、そのままでは次token予測に使いやすい形とは限りません。たとえば「日本の首都は」の最後の位置では、「首都」と「は」の情報を組み合わせて「次は地名が来やすい」という特徴にしたいです。各位置で、集めた情報を組み合わせて加工し、次token予測に使える特徴へ変える処理が必要です。
 
 Attentionの出力はValueの重み付き和に線形変換を掛けたものです。どの位置からどれだけ集めるかは入力に応じて変わりますが、集めた後のベクトルには線形な変換しか掛かっていません。集めた情報同士を組み合わせて別の特徴を作るような非線形な処理が、各位置にまだありません。
 
-### この技術が解決すること
-
-MLPは各位置のベクトルへ非線形な変換を適用します。Attentionがtoken間で情報を集めるのに対し、MLPは集めた後の各ベクトルを加工します。
-
-### 仕組み
+そこでMLPを使います。MLPは各位置のベクトルへ非線形な変換を適用します。Attentionがtoken間で情報を集めるのに対し、MLPは集めた後の各ベクトルを加工します。式とshapeは次のとおりです。
 
 ```text
 MLP(x) = GELU(xW₁ + b₁)W₂ + b₂
@@ -873,9 +900,12 @@ GELUは非線形な活性化関数です。線形変換を2回続けるだけな
 
 ### 実装
 
-**`model.py` に `FeedForward` を追加します。**
+**`model.py` の先頭に `from torch.nn import functional as F` を足し、`TinyGPT` の前に `FeedForward` を追加します。**
 
 ```python
+from torch.nn import functional as F
+
+
 class FeedForward(nn.Module):
     def __init__(self, d_model: int) -> None:
         super().__init__()
@@ -917,19 +947,15 @@ Attentionはtoken間の情報交換を担い、MLPは各tokenの表現を非線�
 
 ## 1.8 Residual ConnectionとLayerNorm — 変換を重ねられるようにする
 
-### まず何が問題なのか
+AttentionとMLPを1回ずつ通すだけでは、情報を集めて加工する機会が1回しかありません。加工した結果をもとにもう一度情報を集め、さらに加工するというように、AttentionとMLPの組を何層も重ねて深くしたいです。層を重ねるほど、より多くの段階を経た特徴を作れます。
 
-AttentionとMLPで毎回ベクトルを置き換えると、学習の初期段階でもそれまでの表現が大きく変わることがあります。層を重ねるほど勾配も多くの変換を通ることになります。
+ところがAttentionとMLPで毎回ベクトルを置き換えると、学習の初期段階でもそれまでの表現が大きく変わることがあります。層を重ねるほど、学習でパラメータを直す手がかり（1.11で扱う勾配）も多くの変換を通ることになります。
 
 また層ごとにベクトルの値の大きさが変わると、後続の計算が扱うスケールも変わります。小さな1層モデルでは動いても、そのまま深くすると学習しにくくなる可能性があります。
 
-### この技術が解決すること
-
-Residual Connectionは変換前のベクトルに変換結果を足します。変換全体で毎回表現を作り直す代わりに、元の表現への追加・修正を学習できる形にします。
+そこでResidual ConnectionとLayerNormを使います。Residual Connectionは変換前のベクトルに変換結果を足します。変換全体で毎回表現を作り直す代わりに、元の表現への追加・修正を学習できる形にします。
 
 LayerNormは各tokenのベクトル内で値のスケールを整えます。このPartではAttentionやMLPへ入力する前に適用するPre-LN構成を使います。
-
-### 仕組み
 
 Residual Connectionの式は単純です。
 
@@ -954,7 +980,7 @@ LayerNorm(xᵢ) = γᵢ × (xᵢ − μ) / √(σ² + ε) + βᵢ
 
 ### 実装
 
-`nn.LayerNorm` と同じ計算を、正規化する軸が見えるように自分で書きます。**`model.py` に `LayerNorm` を追加します。**
+`nn.LayerNorm` と同じ計算を、正規化する軸が見えるように自分で書きます。**`model.py` の `TinyGPT` の前に `LayerNorm` を追加します。**
 
 ```python
 class LayerNorm(nn.Module):
@@ -986,15 +1012,31 @@ flowchart LR
     add --> y["x + 更新分"]
 ```
 
+### 動作確認 — tokenごとに平均0・分散1になるか
+
+```python
+import torch
+from tiny_gpt.model import LayerNorm
+
+torch.manual_seed(0)
+norm = LayerNorm(4)
+x = torch.randn(1, 3, 4) * 10 + 5
+normalized = norm(x)
+print(x[0].mean(dim=-1), x[0].var(dim=-1, unbiased=False))
+print(normalized[0].mean(dim=-1), normalized[0].var(dim=-1, unbiased=False))
+```
+
+入力では3つのtokenの平均と分散がばらばらです。LayerNormを通すと、どのtokenも平均がほぼ0、分散がほぼ1になります。`scale` と `shift` の初期値は1と0なので、この時点では正規化した値がそのまま出ます。
+
 ### この節で理解したこと
 
 Residual Connectionは元の表現に更新分を加える構造です。LayerNormは各tokenのベクトルのスケールを整えます。両者を組み込んで変換を繰り返せるBlockを作ります。
 
 ## 1.9 Transformer Block — 情報の収集と加工を1層にまとめる
 
-ここまでに作ったAttention・MLP・Residual Connection・LayerNormを1つのTransformer Blockにつなぎます。入出力の形を `[B, T, D]` に揃えておくと、元の表現へ足すResidual Connectionが成立し、同じBlockを何層でも重ねられます。このBlockを1回通すことが、この教材でいう「1層」に対応します。
+1.8で見たとおり、情報を集めて加工する処理を何層も重ねたいです。そのためには、重ねる単位となる1層分の処理を1つの部品にまとめておく必要があります。そこでここまでに作ったAttention・MLP・Residual Connection・LayerNormを1つのTransformer Blockにつなぎます。入出力の形を `[B, T, D]` に揃えておくと、元の表現へ足すResidual Connectionが成立し、同じBlockを何層でも重ねられます。このBlockを1回通すことが、この教材でいう「1層」に対応します。
 
-### 仕組み
+Blockの中のつなぎ方は次のとおりです。
 
 ```text
                  ┌───────────────────────────┐
@@ -1013,7 +1055,7 @@ Attentionが過去のtokenから情報を集め、その結果を含む表現を
 
 ### 実装
 
-**`model.py` に `TransformerBlock` を追加します。**
+**`model.py` の `TinyGPT` の前に `TransformerBlock` を追加します。**
 
 ```python
 class TransformerBlock(nn.Module):
@@ -1034,7 +1076,21 @@ class TransformerBlock(nn.Module):
 
 Attentionの2つ目の戻り値は観察用のAttention weightで、Block内では使いません。
 
-Blockの入出力はどちらも `[B, T, D]` です。次のBlockへそのまま渡せる形になりました。モデル全体をつないだ後で1.10の確認コードを実行します。
+Blockの入出力はどちらも `[B, T, D]` です。次のBlockへそのまま渡せる形になりました。
+
+### 動作確認 — Blockを通してもshapeが変わらないか
+
+```python
+import torch
+from tiny_gpt.model import TransformerBlock
+
+torch.manual_seed(0)
+block = TransformerBlock(4)
+x = torch.randn(1, 3, 4)
+print(block(x).shape)
+```
+
+`[1, 3, 4]` のまま出てきます。入力と同じshapeなので、出力をもう一度Blockへ渡せます。
 
 ### この節で理解したこと
 
@@ -1042,15 +1098,11 @@ GPTの1層はAttention・MLP・LayerNorm・Residual Connectionを組み合わせ
 
 ## 1.10 LM Head — 各tokenの表現を次token候補のlogitに変える
 
-### まず何が問題なのか
+GPTの仕事は、各位置で次のtokenを予測することでした。そのためには各位置で、語彙に含まれる `vocab_size` 個の候補それぞれについて、次に来やすいかを表すスコアが必要です。
 
-Blockの出力はD次元のベクトルです。そのままでは「次は `a` なのか、空白なのか」を選べません。語彙内の候補ごとのスコアが必要です。
+ところがBlockの出力は、各位置のD次元のベクトルです。たとえば「日本の首都は東」の最後の位置で、次が「京」なのか「北」なのかを、このベクトルから直接は選べません。
 
-### この技術が解決すること
-
-LM HeadでD次元から `vocab_size` 次元へ変換します。各位置に次token候補ごとのスコアであるlogitが1つずつ出ます。
-
-### 仕組み
+そこでLM HeadでD次元から `vocab_size` 次元へ変換します。各位置に次token候補ごとのスコアであるlogitが1つずつ出ます。Blockの出力からlogitまでのshapeは次のとおりです。
 
 ```text
 Blockの出力           [B, T, D]
@@ -1066,7 +1118,9 @@ Attentionのsoftmaxは「どの入力tokenを参照するか」の分布でし�
 
 ### 実装
 
-いよいよ入力から出力までをつなぎます。**`model.py` に `TinyGPT` を追加します。**
+いよいよ入力から出力までをつなぎます。1.4の `TinyGPT` に `block`・`final_norm`・`lm_head` を足し、`forward` でEmbeddingの後に順に通します。
+
+**`model.py` の `TinyGPT` を次のクラスへ置き換えます。**
 
 ```python
 class TinyGPT(nn.Module):
@@ -1086,7 +1140,7 @@ class TinyGPT(nn.Module):
         if length == 0 or length > self.context_length:
             raise ValueError("入力の長さがcontext_lengthの範囲外です")
 
-        positions = torch.arange(length, device=ids.device)
+        positions = torch.arange(length)
         # tokenの表現 [B, T, D] に、全系列で共通の位置表現 [T, D] を足す。
         x = self.token_embedding(ids)
         x = x + self.position_embedding(positions)
@@ -1147,15 +1201,9 @@ GPTは各位置のベクトルを語彙数次元のlogitsへ変換します。�
 
 ## 1.11 lossと学習 — 正解のtokenへ確率を寄せる
 
-### まず何が問題なのか
+モデルには、各位置で正解のtokenに高い確率を付けてほしいです。1.10までで各位置のlogitsを出せるようになりましたが、パラメータはまだ乱数の初期値なので、予測は正解と関係なく決まります。正しい続きを予測できるようにするには、予測の誤差を1つの数値にし、それを小さくするようにパラメータを更新する必要があります。
 
-モデルはlogitsを出せるようになりましたが、パラメータはまだ初期値です。正しい続きを予測するには、予測の誤差を数値にし、それを小さくするようにパラメータを更新する必要があります。
-
-### この技術が解決すること
-
-Cross Entropy Lossで正解tokenに割り当てた確率を評価します。Backpropagationで各パラメータに対する勾配を求め、optimizerで値を更新します。
-
-### 仕組み
+そこでCross Entropy Lossで正解tokenに割り当てた確率を評価します。Backpropagationで各パラメータに対する勾配を求め、optimizerで値を更新します。
 
 位置tの正解を `y_t`、そのtokenへ割り当てた確率を `p(y_t)` とすると、1つの予測のlossは次の値です。
 
@@ -1186,24 +1234,77 @@ Backpropagationが計算するのは「各パラメータを微小に変えた�
 
 ### 実装
 
-まずlossと評価の処理を書きます。PyTorchの `cross_entropy` には確率ではなくlogitsを渡します。関数内部で対数とsoftmaxに相当する計算を数値的に安定した形で行います。[CrossEntropyLoss](https://docs.pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html)
+まず、学習に使うバッチを切り出す処理を書きます。1.2でつないだ1本のtoken列から連続する範囲を切り出します。この範囲を「窓」と呼びます。1組の入力・正解を作るには `T+1` tokenが必要です。先頭T個を入力、その1つ先からT個を正解にします。
+
+**`dataset.py` のimportを次の内容に置き換え、末尾に2つの関数を追加します。**
+
+```python
+import torch
+
+from tiny_gpt.config import Config
+from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
+```
+
+```python
+def load_data(tokenizer: Tokenizer) -> tuple[torch.Tensor, torch.Tensor]:
+    train_texts = read_texts(DATA_DIR / "train.jsonl")
+    validation_texts = read_texts(DATA_DIR / "validation.jsonl")
+    train_ids = encode_documents(train_texts, tokenizer)
+    validation_ids = encode_documents(validation_texts, tokenizer)
+    return train_ids, validation_ids
+
+
+def make_batch(
+    data: torch.Tensor,
+    config: Config,
+    generator: torch.Generator,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    # 長い1本のtoken列から、ランダムな位置でT個ずつ切り出した「窓」をB本集める。
+    # 文書の先頭から順に読むのではなく、毎回ばらばらの場所から練習問題を作る。
+    # 例（T=8）: ある窓が「は、上記の問題へ」なら、
+    #   入力 x: は 、 上 記 の 問 題 へ
+    #   正解 y: 、 上 記 の 問 題 へ の
+    # となり、「は→、」「は、→上」「は、上→記」… と
+    # 「ここまでを読んで次の1文字を当てる」問題がT個ぶん一度にできる。
+    starts = torch.randint(
+        low=0,
+        high=len(data) - config.context_length,
+        size=(config.batch_size,),
+        generator=generator,
+    )
+    inputs: list[torch.Tensor] = []
+    targets: list[torch.Tensor] = []
+
+    for start_tensor in starts:
+        start = int(start_tensor.item())
+        end = start + config.context_length
+        # 各位置の正解は1token先。入力と正解の長さはどちらもTに揃える。
+        inputs.append(data[start:end])
+        targets.append(data[start + 1:end + 1])
+
+    # B本の窓を縦に並べて、shape [B, T] の入力と正解にする。
+    x = torch.stack(inputs)
+    y = torch.stack(targets)
+    return x, y
+```
+
+`torch.stack` は同じ長さの系列を並べ、`[T]` をB個集めて `[B, T]` にします。`generator` はバッチ選択用の乱数の状態です。後で評価や生成が学習用の乱数を進めないように分けます。
+
+窓が文書の境界をまたぐことはあります。EOSは境界を示すtokenで、Attentionを遮るMaskではありません。この実装では同じ窓に入った前の文書も参照できますが、trainとvalidationの境界をまたぐことはありません。
+
+次に、lossと評価の処理を書きます。PyTorchの `cross_entropy` には確率ではなくlogitsを渡します。関数内部で対数とsoftmaxに相当する計算を数値的に安定した形で行います。[CrossEntropyLoss](https://docs.pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html)
 
 **保存先：`tiny_gpt/train.py`。この節のコードを順に保存し、1.13で実行処理を追加します。**
 
 ```python
-import json
-import platform
 import time
-from pathlib import Path
 
-import matplotlib.pyplot as plt
 import torch
 from torch.nn import functional as F
 
 from tiny_gpt.config import Config
-from tiny_gpt.dataset import load_data, make_batch
+from tiny_gpt.dataset import make_batch
 from tiny_gpt.model import TinyGPT
-from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
 
 
 def batch_loss(
@@ -1217,9 +1318,7 @@ def batch_loss(
     return F.cross_entropy(flat_logits, flat_targets)
 
 
-def evaluate(
-    model: TinyGPT, data: torch.Tensor, config: Config, device: torch.device,
-) -> float:
+def evaluate(model: TinyGPT, data: torch.Tensor, config: Config) -> float:
     generator = torch.Generator()
     # 評価するたび同じ窓を選び、モデルの変化を比較する。学習用乱数とは独立。
     generator.manual_seed(1234)
@@ -1228,7 +1327,7 @@ def evaluate(
 
     with torch.no_grad():
         for _ in range(config.eval_batches):
-            x, y = make_batch(data, config, generator, device)
+            x, y = make_batch(data, config, generator)
             loss = batch_loss(model, x, y)
             total_loss += loss.item()
 
@@ -1252,17 +1351,11 @@ def evaluate(
 **`train.py` に追加します。**
 
 ```python
-def synchronize(device: torch.device) -> None:
-    if device.type == "mps":
-        torch.mps.synchronize()
-
-
 def train_model(
     model: TinyGPT,
     train_ids: torch.Tensor,
     validation_ids: torch.Tensor,
     config: Config,
-    device: torch.device,
 ) -> tuple[list[dict[str, float]], float]:
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=config.learning_rate, weight_decay=0.01
@@ -1271,13 +1364,12 @@ def train_model(
     generator.manual_seed(config.seed)
     history: list[dict[str, float]] = []
 
-    synchronize(device)
     started = time.perf_counter()
 
     for step in range(config.steps + 1):
         if step % config.eval_every == 0 or step == config.steps:
-            train_loss = evaluate(model, train_ids, config, device)
-            validation_loss = evaluate(model, validation_ids, config, device)
+            train_loss = evaluate(model, train_ids, config)
+            validation_loss = evaluate(model, validation_ids, config)
             history.append({
                 "step": step,
                 "train_loss": train_loss,
@@ -1293,7 +1385,7 @@ def train_model(
             break
 
         model.train()
-        x, y = make_batch(train_ids, config, generator, device)
+        x, y = make_batch(train_ids, config, generator)
         optimizer.zero_grad(set_to_none=True)
         loss = batch_loss(model, x, y)
         if not torch.isfinite(loss).item():
@@ -1301,14 +1393,13 @@ def train_model(
         loss.backward()   # 勾配を計算する。この時点ではパラメータは変わらない。
         optimizer.step()  # 勾配に基づいてパラメータを更新する。
 
-    synchronize(device)
     elapsed = time.perf_counter() - started
     return history, elapsed
 ```
 
 `zero_grad` で前回の勾配を消し、`backward` で今回の勾配を計算して `step` でパラメータを更新します。`backward` だけではパラメータは変わりません。
 
-MPSの計算はCPUから非同期で実行されるため、時間を測る前後で完了を待ちます。ここで記録する時間は学習ループと定期評価を含む経過時間です。データ取得や文章生成は含めません。
+ここで記録する時間は学習ループと定期評価を含む経過時間です。データ取得や文章生成は含めません。
 
 ### 実験 — 正解への確率とlossの関係を見る
 
@@ -1327,7 +1418,47 @@ print(F.cross_entropy(confident, target).item())
 
 結果は約1.099と約0.095です。次に、正解を `0` へ変えて同じlogitsを評価すると、2つ目のlossは大きくなります。自信を持って間違えるほど正解の確率が低くなるためです。
 
-全体の学習は生成処理を追加した後で実行します。その際は初期値のlossと学習後のlossを比較し、実際に予測が変わったかを見ます。
+次に、作ったモデルとデータで実際にlossを測り、少しだけ学習させます。
+
+**`main.py` を次の内容にして実行します。**
+
+```python
+import torch
+from tiny_gpt.config import Config
+from tiny_gpt.dataset import load_data, make_batch
+from tiny_gpt.model import TinyGPT
+from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
+from tiny_gpt.train import batch_loss, train_model
+
+config = Config()
+config.steps = 100
+config.eval_every = 50
+torch.manual_seed(config.seed)
+tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
+train_ids, validation_ids = load_data(tokenizer)
+model = TinyGPT(tokenizer.vocab_size, config)
+
+generator = torch.Generator()
+generator.manual_seed(config.seed)
+x, y = make_batch(train_ids, config, generator)
+print(x.shape, y.shape)
+print("入力:", tokenizer.decode(x[0, :16].tolist()))
+print("正解:", tokenizer.decode(y[0, :16].tolist()))
+print("学習前のloss:", round(batch_loss(model, x, y).item(), 4))
+
+history, elapsed = train_model(model, train_ids, validation_ids, config)
+print("秒数:", round(elapsed, 1))
+```
+
+`x` と `y` のshapeは `[16, 128]` で、正解は入力を1文字ずらした文字列です。学習前のlossは約8.49になります。語彙4,052個から一様に選んだときのlossが `−log(1/4052) ≈ 8.31` なので、初期値のモデルは当てずっぽうとほぼ同じです。100回の更新でlossは次のように下がります。
+
+| step | train loss | validation loss |
+|---:|---:|---:|
+| 0 | 8.5125 | 8.5111 |
+| 50 | 6.5096 | 6.5342 |
+| 100 | 5.7953 | 5.8381 |
+
+わずか100回でも正解tokenへ確率が寄り始めています。全体の学習は生成処理を追加した後の1.13で行います。
 
 ### この節で理解したこと
 
@@ -1335,14 +1466,16 @@ print(F.cross_entropy(confident, target).item())
 
 ## 1.12 文章生成 — 次token予測を繰り返す
 
+モデルを使って、途中まで書いた文の続きを書かせたいです。ところがモデルが1回の計算で出すのは、各位置の次tokenの候補ごとのlogitsだけです。文章の続きを得るには、この予測から1tokenを選ぶ処理と、それを繰り返す処理が必要です。
+
 1.1で見たとおり、生成は最後の位置のlogitsから1tokenを選び、入力へ追加して繰り返す処理です。この節ではその繰り返しを実装します。常に最大のlogitを選ぶか、分布から抽選するかで、同じモデルでも続きが変わります。モデルのパラメータを変えずに選び方だけを切り替えて、生成結果の違いを観察します。
 
-### 仕組み
+繰り返しの流れは次のとおりです。
 
 ```text
-入力 日本の／首都／は          → 最後の位置のlogits → 東京を選ぶ
-入力 日本の／首都／は／東京    → 最後の位置のlogits → ですを選ぶ
-入力 日本の／首都／は／東京／です → 最後の位置のlogits → ...
+入力 日本の首都は     → 最後の位置のlogits → 東を選ぶ
+入力 日本の首都は東   → 最後の位置のlogits → 京を選ぶ
+入力 日本の首都は東京 → 最後の位置のlogits → ...
 ```
 
 このPartでは次の2つの選び方を実装します。
@@ -1380,13 +1513,12 @@ def generate(
     tokenizer: Tokenizer,
     prompt: str,
     max_new_tokens: int,
-    device: torch.device,
     method: str = "sampling",
     temperature: float = 0.8,
     seed: int = 100,
 ) -> str:
-    ids = torch.tensor([tokenizer.encode(prompt)], dtype=torch.long, device=device)
-    generator = torch.Generator(device="cpu")
+    ids = torch.tensor([tokenizer.encode(prompt)], dtype=torch.long)
+    generator = torch.Generator()
     generator.manual_seed(seed)
     model.eval()
 
@@ -1403,23 +1535,22 @@ def generate(
             else:
                 probabilities = torch.softmax(last_logits / temperature, dim=-1)
                 next_id = torch.multinomial(
-                    probabilities.cpu(), num_samples=1, generator=generator
+                    probabilities, num_samples=1, generator=generator
                 )
-                next_id = next_id.to(device)
 
             if int(next_id.item()) == tokenizer.eos_id:
                 break
             # 自分で選んだtokenも、次の予測の入力になる。
             ids = torch.cat((ids, next_id), dim=1)
 
-    return tokenizer.decode(ids[0].cpu().tolist())
+    return tokenizer.decode(ids[0].tolist())
 ```
 
 EOSを選んだら `break` で終了し、文章として表示するID列には追加しません。EOSが出なければ `max_new_tokens` まで繰り返します。
 
 `next_id` のshapeは `[1, 1]`、追加後の `ids` は `[1, T+1]` です。この関数では1つのprompt（生成の起点として渡す入力）から生成します。学習で使うバッチサイズとは独立です。
 
-生成用の乱数を学習と分けるため、抽選は専用のCPU Generatorで行います。モデルをMPSで動かす場合も、分布をCPUへ移して抽選し、選んだIDだけを戻します。
+生成用の乱数を学習と分けるため、抽選は専用のGeneratorで行います。
 
 長さが上限を超えたら末尾の `context_length` tokenだけを使います。その窓に対して位置を0から付け直す方式です。学習時より長い履歴を記憶できるようになったわけではありません。
 
@@ -1446,6 +1577,34 @@ for temperature in (0.5, 1.0, 2.0):
 
 どの場合も一番確率が高いのは候補0ですが、その候補に集まる確率は変わります。
 
+次に、学習前のモデルで実際に生成します。
+
+**`main.py` を次の内容にして実行します。**
+
+```python
+import torch
+from tiny_gpt.config import Config
+from tiny_gpt.generate import generate
+from tiny_gpt.model import TinyGPT
+from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
+
+config = Config()
+torch.manual_seed(config.seed)
+tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
+model = TinyGPT(tokenizer.vocab_size, config)
+print("sampling:", generate(model, tokenizer, "日本の首都は", 20))
+print("greedy:", generate(model, tokenizer, "日本の首都は", 20, method="greedy"))
+```
+
+手元では次のようになりました。
+
+```text
+sampling: 日本の首都は息話淳煤恫句巳。竿w肉膨嶽逮討胱琴等恕甫
+greedy: 日本の首都は忌靴墨光ょ俸斡善須絡प働停剪礁柔簗畳章被
+```
+
+パラメータが初期値なので、どちらもpromptの後ろにでたらめな文字が20個続きます。同じモデルでも、samplingとgreedyでは選ばれる文字が違います。予測・選択・入力への追加の繰り返しは、学習前でもこの形で動いています。
+
 操作デモ：[temperatureと候補の選択を比べる](demos/part1.html#temperature)
 
 操作デモ：[実際のGPTの生成を1tokenずつ再生する](demos/part1.html#generation)
@@ -1456,9 +1615,9 @@ for temperature in (0.5, 1.0, 2.0):
 
 ## 1.13 学習前後を比較する — lossと生成を一緒に見る
 
-コードが最後まで実行できても、何を学習したかは分かりません。見栄えのよい生成例が1つ出ただけでも、モデル全体の予測がよくなったとは判断できません。そこで固定した条件で、trainとvalidationのテキストでlossを測り、同じpromptの続きを学習前後で比較します。パラメータ数と経過時間も残し、モデルを拡張した後でも同じ方法で比較できるようにします。
+ここまでで作ったGPTを学習させ、次token予測が学習でよくなったかを確かめたいです。ただしコードが最後まで実行できても、何を学習したかは分かりません。見栄えのよい生成例が1つ出ただけでも、モデル全体の予測がよくなったとは判断できません。そこで固定した条件で、trainとvalidationのテキストでlossを測り、同じpromptの続きを学習前後で比較します。パラメータ数と経過時間も残し、モデルを拡張した後でも同じ方法で比較できるようにします。
 
-### 仕組み
+比較の流れは次のとおりです。
 
 ```text
 同じ初期値から出発
@@ -1471,23 +1630,37 @@ validationを使って勾配を計算したり、パラメータを更新した�
 
 ### 実装
 
-学習前後の生成を保存するため、**`train.py` のimportに次の1行を追加します。**
+学習した語彙をモデルと組にして保存するため、**`tokenizer.py` の `Tokenizer` に `save` を追加します。**
 
 ```python
-from tiny_gpt.generate import generate
+    def save(self, path: Path) -> None:
+        path.write_text(json.dumps(self.tokens, ensure_ascii=False), encoding="utf-8")
 ```
 
-次に、実行時の準備とloss curveの保存を追加します。
+次に、生成と結果の保存に使うモジュールを読み込みます。**`train.py` のimportを次の内容に置き換えます。**
+
+```python
+import json
+import platform
+import time
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import torch
+from torch.nn import functional as F
+
+from tiny_gpt.config import Config
+from tiny_gpt.dataset import load_data, make_batch
+from tiny_gpt.generate import generate
+from tiny_gpt.model import TinyGPT
+from tiny_gpt.tokenizer import DATA_DIR, Tokenizer, read_texts
+```
+
+続いて、loss curveの保存を追加します。
 
 **`train.py` に追加します。**
 
 ```python
-def select_device() -> torch.device:
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
-    return torch.device("cpu")
-
-
 def save_loss_curve(history: list[dict[str, float]], path: Path) -> None:
     steps: list[float] = []
     train_losses: list[float] = []
@@ -1517,30 +1690,27 @@ def collect_generations(
     model: TinyGPT,
     tokenizer: Tokenizer,
     prompts: list[str],
-    device: torch.device,
 ) -> list[dict[str, str]]:
     results: list[dict[str, str]] = []
     for prompt in prompts:
         results.append({
             "prompt": prompt,
-            "sampling": generate(model, tokenizer, prompt, 80, device),
-            "greedy": generate(model, tokenizer, prompt, 80, device, method="greedy"),
+            "sampling": generate(model, tokenizer, prompt, 80),
+            "greedy": generate(model, tokenizer, prompt, 80, method="greedy"),
         })
     return results
 
 
 def run(config: Config) -> None:
     torch.manual_seed(config.seed)
-    device = select_device()
     # validationの内容を使わず、trainの文字だけから語彙を作る。
     tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
-    train_ids, validation_ids = load_data(tokenizer, config)
-    model = TinyGPT(tokenizer.vocab_size, config).to(device)
+    train_ids, validation_ids = load_data(tokenizer)
+    model = TinyGPT(tokenizer.vocab_size, config)
 
     parameter_count = 0
     for parameter in model.parameters():
         parameter_count += parameter.numel()
-    print("device:", device)
     print("パラメータ数:", parameter_count)
     print("train / validationのtoken数:", len(train_ids), len(validation_ids))
 
@@ -1549,13 +1719,11 @@ def run(config: Config) -> None:
     # validationの文書の冒頭からも続きを生成する。
     for index in range(2):
         prompts.append(validation_texts[index][:24])
-    before = collect_generations(model, tokenizer, prompts, device)
+    before = collect_generations(model, tokenizer, prompts)
     print("学習前:\n" + json.dumps(before, ensure_ascii=False, indent=2))
 
-    history, elapsed = train_model(
-        model, train_ids, validation_ids, config, device
-    )
-    after = collect_generations(model, tokenizer, prompts, device)
+    history, elapsed = train_model(model, train_ids, validation_ids, config)
+    after = collect_generations(model, tokenizer, prompts)
     print("学習後:\n" + json.dumps(after, ensure_ascii=False, indent=2))
     print("学習と評価の秒数:", round(elapsed, 2))
 
@@ -1567,7 +1735,6 @@ def run(config: Config) -> None:
         "python": platform.python_version(),
         "torch": torch.__version__,
         "platform": platform.platform(),
-        "device": str(device),
         "parameters": parameter_count,
         "vocab_size": tokenizer.vocab_size,
         "dataset": manifest,
@@ -1634,11 +1801,11 @@ uv run python main.py
 | 入力の話題が続くか | 記録する | 記録する |
 | 同じ表現の繰り返し | 記録する | 記録する |
 
-seedを固定しても、PyTorchのバージョンやCPU・MPSの違いをまたいだ結果の完全一致は保証されません。比較は同じ環境で行い、生成の完全一致よりlossの推移と複数の出力の傾向を見ます。
+seedを固定しても、PyTorchのバージョンや実行環境の違いをまたいだ結果の完全一致は保証されません。比較は同じ環境で行い、生成の完全一致よりlossの推移と複数の出力の傾向を見ます。
 
 #### 参考：この設定での実行結果
 
-Apple M5 Pro、Python 3.14.7・PyTorch 2.14.0・macOS 26.6で実行した結果です。パラメータ数は1,256,276で、10,000回の更新と定期評価に約69秒かかりました。データ取得・語彙作成・文章生成の時間は含みません。
+Apple M5 ProのCPU、Python 3.14.7・PyTorch 2.14.0・macOS 26.6で実行した結果です。パラメータ数は1,256,276で、10,000回の更新と定期評価に約3分かかりました。データ取得・語彙作成・文章生成の時間は含みません。
 
 | 指標 | 学習前 | 10,000回の更新後 |
 |---|---:|---:|
@@ -1685,7 +1852,7 @@ Apple M5 Pro、Python 3.14.7・PyTorch 2.14.0・macOS 26.6で実行した結果�
 ```python
 for temperature in (0.7, 1.0, 1.3):
     text = generate(
-        model, tokenizer, "プログラミングを学ぶには、", 80, device,
+        model, tokenizer, "プログラミングを学ぶには、", 80,
         temperature=temperature, seed=100,
     )
     print("temperature:", temperature)

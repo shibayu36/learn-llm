@@ -13,7 +13,6 @@
   "python": "3.14.7",
   "torch": "2.14.0",
   "platform": "macOS-26.6-arm64-arm-64bit-Mach-O",
-  "device": "mps",
   "parameters": 1256276,
   "vocab_size": 4052,
   "dataset": {
@@ -45,62 +44,62 @@
   "train_tokens": 5929916,
   "validation_tokens": 657568,
   "processed_tokens": 20480000,
-  "training_and_evaluation_seconds": 68.92979695898248,
+  "training_and_evaluation_seconds": 171.42632004097686,
   "history": [
     {
       "step": 0,
-      "train_loss": 8.512484788894653,
-      "validation_loss": 8.51111352443695
+      "train_loss": 8.512485027313232,
+      "validation_loss": 8.51111388206482
     },
     {
       "step": 1000,
       "train_loss": 4.4155115485191345,
-      "validation_loss": 4.414746403694153
+      "validation_loss": 4.414746701717377
     },
     {
       "step": 2000,
-      "train_loss": 4.084112197160721,
-      "validation_loss": 4.091931879520416
+      "train_loss": 4.084112137556076,
+      "validation_loss": 4.091931939125061
     },
     {
       "step": 3000,
-      "train_loss": 3.905502140522003,
-      "validation_loss": 3.923487275838852
+      "train_loss": 3.9055019319057465,
+      "validation_loss": 3.9234870970249176
     },
     {
       "step": 4000,
-      "train_loss": 3.7882763743400574,
-      "validation_loss": 3.8081431090831757
+      "train_loss": 3.788275957107544,
+      "validation_loss": 3.808142811059952
     },
     {
       "step": 5000,
-      "train_loss": 3.697623312473297,
-      "validation_loss": 3.732399880886078
+      "train_loss": 3.6976229548454285,
+      "validation_loss": 3.7323994636535645
     },
     {
       "step": 6000,
-      "train_loss": 3.642500638961792,
-      "validation_loss": 3.6752873957157135
+      "train_loss": 3.642500191926956,
+      "validation_loss": 3.675286650657654
     },
     {
       "step": 7000,
-      "train_loss": 3.592995971441269,
-      "validation_loss": 3.638139635324478
+      "train_loss": 3.5929952561855316,
+      "validation_loss": 3.6381389796733856
     },
     {
       "step": 8000,
-      "train_loss": 3.5564075708389282,
-      "validation_loss": 3.602591037750244
+      "train_loss": 3.556406855583191,
+      "validation_loss": 3.602590173482895
     },
     {
       "step": 9000,
-      "train_loss": 3.5237937569618225,
-      "validation_loss": 3.574544221162796
+      "train_loss": 3.523793011903763,
+      "validation_loss": 3.5745431780815125
     },
     {
       "step": 10000,
-      "train_loss": 3.5021805465221405,
-      "validation_loss": 3.553557366132736
+      "train_loss": 3.502179652452469,
+      "validation_loss": 3.553556352853775
     }
   ],
   "generation_temperature": 0.8,

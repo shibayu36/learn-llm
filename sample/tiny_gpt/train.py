@@ -25,9 +25,7 @@ def batch_loss(
     return F.cross_entropy(flat_logits, flat_targets)
 
 
-def evaluate(
-    model: TinyGPT, data: torch.Tensor, config: Config, device: torch.device,
-) -> float:
+def evaluate(model: TinyGPT, data: torch.Tensor, config: Config) -> float:
     generator = torch.Generator()
     # 評価するたび同じ窓を選び、モデルの変化を比較する。学習用乱数とは独立。
     generator.manual_seed(1234)
@@ -36,16 +34,11 @@ def evaluate(
 
     with torch.no_grad():
         for _ in range(config.eval_batches):
-            x, y = make_batch(data, config, generator, device)
+            x, y = make_batch(data, config, generator)
             loss = batch_loss(model, x, y)
             total_loss += loss.item()
 
     return total_loss / config.eval_batches
-
-
-def synchronize(device: torch.device) -> None:
-    if device.type == "mps":
-        torch.mps.synchronize()
 
 
 def train_model(
@@ -53,7 +46,6 @@ def train_model(
     train_ids: torch.Tensor,
     validation_ids: torch.Tensor,
     config: Config,
-    device: torch.device,
 ) -> tuple[list[dict[str, float]], float]:
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=config.learning_rate, weight_decay=0.01
@@ -62,13 +54,12 @@ def train_model(
     generator.manual_seed(config.seed)
     history: list[dict[str, float]] = []
 
-    synchronize(device)
     started = time.perf_counter()
 
     for step in range(config.steps + 1):
         if step % config.eval_every == 0 or step == config.steps:
-            train_loss = evaluate(model, train_ids, config, device)
-            validation_loss = evaluate(model, validation_ids, config, device)
+            train_loss = evaluate(model, train_ids, config)
+            validation_loss = evaluate(model, validation_ids, config)
             history.append({
                 "step": step,
                 "train_loss": train_loss,
@@ -84,7 +75,7 @@ def train_model(
             break
 
         model.train()
-        x, y = make_batch(train_ids, config, generator, device)
+        x, y = make_batch(train_ids, config, generator)
         optimizer.zero_grad(set_to_none=True)
         loss = batch_loss(model, x, y)
         if not torch.isfinite(loss).item():
@@ -92,15 +83,8 @@ def train_model(
         loss.backward()   # 勾配を計算する。この時点ではパラメータは変わらない。
         optimizer.step()  # 勾配に基づいてパラメータを更新する。
 
-    synchronize(device)
     elapsed = time.perf_counter() - started
     return history, elapsed
-
-
-def select_device() -> torch.device:
-    if torch.backends.mps.is_available():
-        return torch.device("mps")
-    return torch.device("cpu")
 
 
 def save_loss_curve(history: list[dict[str, float]], path: Path) -> None:
@@ -127,30 +111,27 @@ def collect_generations(
     model: TinyGPT,
     tokenizer: Tokenizer,
     prompts: list[str],
-    device: torch.device,
 ) -> list[dict[str, str]]:
     results: list[dict[str, str]] = []
     for prompt in prompts:
         results.append({
             "prompt": prompt,
-            "sampling": generate(model, tokenizer, prompt, 80, device),
-            "greedy": generate(model, tokenizer, prompt, 80, device, method="greedy"),
+            "sampling": generate(model, tokenizer, prompt, 80),
+            "greedy": generate(model, tokenizer, prompt, 80, method="greedy"),
         })
     return results
 
 
 def run(config: Config) -> None:
     torch.manual_seed(config.seed)
-    device = select_device()
     # validationの内容を使わず、trainの文字だけから語彙を作る。
     tokenizer = Tokenizer.from_texts(read_texts(DATA_DIR / "train.jsonl"))
-    train_ids, validation_ids = load_data(tokenizer, config)
-    model = TinyGPT(tokenizer.vocab_size, config).to(device)
+    train_ids, validation_ids = load_data(tokenizer)
+    model = TinyGPT(tokenizer.vocab_size, config)
 
     parameter_count = 0
     for parameter in model.parameters():
         parameter_count += parameter.numel()
-    print("device:", device)
     print("パラメータ数:", parameter_count)
     print("train / validationのtoken数:", len(train_ids), len(validation_ids))
 
@@ -159,13 +140,11 @@ def run(config: Config) -> None:
     # validationの文書の冒頭からも続きを生成する。
     for index in range(2):
         prompts.append(validation_texts[index][:24])
-    before = collect_generations(model, tokenizer, prompts, device)
+    before = collect_generations(model, tokenizer, prompts)
     print("学習前:\n" + json.dumps(before, ensure_ascii=False, indent=2))
 
-    history, elapsed = train_model(
-        model, train_ids, validation_ids, config, device
-    )
-    after = collect_generations(model, tokenizer, prompts, device)
+    history, elapsed = train_model(model, train_ids, validation_ids, config)
+    after = collect_generations(model, tokenizer, prompts)
     print("学習後:\n" + json.dumps(after, ensure_ascii=False, indent=2))
     print("学習と評価の秒数:", round(elapsed, 2))
 
@@ -177,7 +156,6 @@ def run(config: Config) -> None:
         "python": platform.python_version(),
         "torch": torch.__version__,
         "platform": platform.platform(),
-        "device": str(device),
         "parameters": parameter_count,
         "vocab_size": tokenizer.vocab_size,
         "dataset": manifest,

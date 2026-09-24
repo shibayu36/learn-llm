@@ -40,10 +40,6 @@ class Tokenizer:
             chars.update(text)
         return cls([EOS_TOKEN, UNK_TOKEN] + sorted(chars))
 
-    @classmethod
-    def load(cls, path: Path) -> "Tokenizer":
-        return cls(json.loads(path.read_text(encoding="utf-8")))
-
     def save(self, path: Path) -> None:
         path.write_text(json.dumps(self.tokens, ensure_ascii=False), encoding="utf-8")
 

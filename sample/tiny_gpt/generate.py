@@ -9,13 +9,12 @@ def generate(
     tokenizer: Tokenizer,
     prompt: str,
     max_new_tokens: int,
-    device: torch.device,
     method: str = "sampling",
     temperature: float = 0.8,
     seed: int = 100,
 ) -> str:
-    ids = torch.tensor([tokenizer.encode(prompt)], dtype=torch.long, device=device)
-    generator = torch.Generator(device="cpu")
+    ids = torch.tensor([tokenizer.encode(prompt)], dtype=torch.long)
+    generator = torch.Generator()
     generator.manual_seed(seed)
     model.eval()
 
@@ -32,13 +31,12 @@ def generate(
             else:
                 probabilities = torch.softmax(last_logits / temperature, dim=-1)
                 next_id = torch.multinomial(
-                    probabilities.cpu(), num_samples=1, generator=generator
+                    probabilities, num_samples=1, generator=generator
                 )
-                next_id = next_id.to(device)
 
             if int(next_id.item()) == tokenizer.eos_id:
                 break
             # 自分で選んだtokenも、次の予測の入力になる。
             ids = torch.cat((ids, next_id), dim=1)
 
-    return tokenizer.decode(ids[0].cpu().tolist())
+    return tokenizer.decode(ids[0].tolist())
