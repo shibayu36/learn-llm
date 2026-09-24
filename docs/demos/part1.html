@@ -25,12 +25,12 @@ section{background:var(--paper);border:1px solid var(--line);border-radius:12px;
  <div class="brand">Tiny GPT<small>Part 1 · 操作デモ</small></div>
  <div class="nav-label">変えて、確かめる</div>
  <nav aria-label="デモの目次">
+  <a href="#generation">生成を1tokenずつ見る</a>
   <a href="#dot-product">内積から参照の割合へ</a>
   <a href="#weighted-sum">Valueを足し合わせる</a>
   <a href="#qkv">WからQ・K・Vを作る</a>
   <a href="#causal-mask">未来の正解を隠す</a>
   <a href="#temperature">greedyとsampling</a>
-  <a href="#generation">生成を1tokenずつ見る</a>
  </nav>
  <a class="back" href="../part1.md">← Part 1の本文へ</a>
 </aside>
@@ -38,10 +38,24 @@ section{background:var(--paper);border:1px solid var(--line);border-radius:12px;
 <header>
  <div class="eyebrow">PYTORCH HANDS-ON · COMPANION</div>
  <h1>数値を変えて、<br>GPTの計算を確かめる。</h1>
- <p class="lead">内積が参照の割合になり、Valueの重み付き和へ変わる流れを追います。最後に、学習前後の日本語GPTが次tokenを選ぶ過程を見てみましょう。</p>
+ <p class="lead">まず、学習前後の日本語GPTが次tokenを選ぶ過程を見ます。そのあと、内積が参照の割合になり、Valueの重み付き和へ変わる流れを追いましょう。</p>
  <div class="legend"><span><span class="badge">説明用の数値</span> 小さな行列で計算</span><span><span class="badge recorded">実測を再生</span> PyTorchでの生成を記録</span></div>
 </header>
 <noscript><div class="noscript">操作デモにはJavaScriptを有効にしてください。説明と数式はこのまま読めます。</div></noscript>
+
+<section id="generation" aria-labelledby="generation-title">
+ <div class="section-top"><span class="number">導入・本文 1.12・1.13</span><span class="badge recorded">実測を再生</span></div>
+ <h2 id="generation-title">選んだ1tokenが、次の入力になる。</h2>
+ <p>参照コードのTiny GPTで記録した生成を1tokenずつ再生します。学習前は意味のつながらない断片が出ても、予測と選択の処理は動いています。</p>
+ <div class="record-options"><label for="record-stage">使うモデル</label><select id="record-stage"><option value="before">学習前</option><option value="after">10,000回の学習後</option></select><span id="record-step" class="step-label"></span></div>
+ <div class="controls"><button id="next-token" class="primary">1token選んで追加する</button><button id="restart-generation">最初から見る</button></div>
+ <div class="two">
+  <div><h3>モデルへの入力</h3><div id="record-prompt" class="prompt" aria-live="polite"></div><p id="record-status" class="record-status" aria-live="polite"></p><p class="small">青い部分が直前のdecodeで変わった箇所です。次の予測には選んだtokenのIDも含まれます。byteの断片がそろうと文字の表示が確定します。</p></div>
+  <div><h3 id="distribution-title">次のtokenの確率</h3><div id="record-probabilities" class="record-probs"></div><p class="small">確率が高い5候補と記録で選ばれた候補を表示します。1tokenだけでは文字にならないbyteの断片は「�」とIDで示します。棒の長さは確率に比例し、表示内の最大値に合わせて幅を調整しています。</p></div>
+ </div>
+ <div class="muted-box">samplingで選ぶtokenは必ずしも確率が最大のtokenではありません。最後の位置の予測から1token選び、入力へ追加してから次の分布を計算します。</div>
+ <div class="source">Python 3.14.7 / PyTorch 2.14.0 / MPS / 2,320,256 parameters / temperature 0.8 / sampling seed 100。ブラウザ上でGPTを動かしているのではなく、各入力に対する確率と選択結果の記録を再生しています。</div>
+</section>
 
 <section id="dot-product" aria-labelledby="dot-title">
  <div class="section-top"><span class="number">本文 1.5 / 内積 → softmax</span><span class="badge">説明用の数値</span></div>
@@ -62,8 +76,8 @@ section{background:var(--paper);border:1px solid var(--line);border-radius:12px;
    <p class="small">指数関数では数値を安定させるため、最大のscoreを引いています。softmaxの結果は変わりません。</p>
   </div>
  </div>
- <div class="instruction">まず「次へ」を2回押して、負のscoreも正の値になり、合計1の割合になる過程を見ましょう。次にQueryの長さを0へ下げると、3つとも同じ割合になります。</div>
- <p class="source">2次元の数値は説明のために置いたものです。座標軸に「名詞らしさ」などの意味は割り当てていません。内積が大きいことは、token同士の意味が近いことを直接保証しません。</p>
+ <div class="instruction">まず「次へ」を2回押して負のscoreも正の値になり、合計1の割合になる過程を見ましょう。次にQueryの長さを0へ下げると、3つとも同じ割合になります。</div>
+ <p class="source">2次元の数値は説明のために置いたものです。座標軸に「名詞らしさ」などの意味は割り当てていません。内積が大きいことはtoken同士の意味が近いことを直接保証しません。</p>
 </section>
 
 <section id="weighted-sum" aria-labelledby="sum-title">
@@ -79,7 +93,7 @@ section{background:var(--paper);border:1px solid var(--line);border-radius:12px;
 <section id="qkv" aria-labelledby="qkv-title">
  <div class="section-top"><span class="number">本文 1.5 / XからQ・K・Vを作る</span><span class="badge">説明用の数値</span></div>
  <h2 id="qkv-title">同じ入力でも、Wを変えると集め方が変わる。</h2>
- <p>Q・K・Vは入力から計算するベクトルです。その変換に使うWq・Wk・Wvが、学習するパラメータです。このデモでは入力Xを固定し、Wだけを変えて違いを見ます。</p>
+ <p>Q・K・Vは入力から計算するベクトルです。その変換に使うWq・Wk・Wvが学習するパラメータです。このデモでは入力Xを固定し、Wだけを変えて違いを見ます。</p>
  <div class="formula">X = [[2, 0], [0, 2], [1, 1]]<br>Q = XWq　K = XWk　V = XWv<br>shape: X・Q・K・Vは [3, 2]、各Wは [2, 2]</div>
  <div class="controls"><button id="w-identity">Wq・Wkを単位行列へ</button><button id="w-query-zero">Wqをすべて0へ</button></div>
  <div class="three" id="w-inputs"></div>
@@ -87,14 +101,14 @@ section{background:var(--paper);border:1px solid var(--line);border-radius:12px;
  <div class="controls"><label for="w-query">参照する位置</label><select id="w-query"><option value="0">位置0</option><option value="1">位置1</option><option value="2" selected>位置2</option></select><label for="w-value-preset">Wvだけを変える</label><select id="w-value-preset"><option value="identity">単位行列</option><option value="double">2倍にする</option><option value="swap">成分を入れ替える</option></select></div>
  <div id="w-query-formula" class="formula"></div>
  <div class="two"><div class="panel"><h3>QとK：どの割合で集めるか</h3><div id="w-plane" class="vector-plane"></div><div class="table-scroll"><table class="chain-table"><thead><tr><th>位置</th><th>Key</th><th>score</th><th>weight</th></tr></thead><tbody id="w-chain"></tbody></table></div></div><div class="panel"><h3>V：何を集めるか</h3><div id="w-value-terms"></div><div id="w-output" class="focus-result" aria-live="polite"></div><p class="small">Wvだけを変えると左のweightは同じまま、右のValueと出力が変わります。</p></div></div>
- <div class="instruction">Wqを0にするとQも0になり、参照先の割合はすべて1/3になります。そのままWvを2倍にすると、割合を保ったまま出力だけが2倍になります。</div>
+ <div class="instruction">Wqを0にするとQも0になり、参照先の割合はすべて1/3になります。そのままWvを2倍にすると割合を保ったまま出力だけが2倍になります。</div>
  <p>入力ベクトル同士の内積だけでscoreを作ると、score(i, j)とscore(j, i)は同じです。別のWq・Wkを使うと、この対称性に縛られないscoreを作れます。ただしsoftmax後のweightは行ごとに正規化するため、元のscoreが対称でも対称とは限りません。</p>
  <p class="source">ここではバイアスとCausal Maskを省略しています。実際の学習ではWだけでなくEmbeddingも更新します。この操作はパラメータの役割を見るもので、学習結果の再現ではありません。</p>
 </section>
 <section id="causal-mask" aria-labelledby="causal-title">
  <div class="section-top"><span class="number">本文 1.6 / Causal Mask</span><span class="badge">説明用の数値</span></div>
  <h2 id="causal-title">「次に当てるtoken」が、入力の先に見えている。</h2>
- <p>入力を「日本の / 首都 / は」とします。位置1で次の「は」を予測するとき、位置2の「は」を参照できたら答えが見えてしまいます。生成時には使えない、この経路をMaskで閉じます。</p>
+ <p>入力を「日本の / 首都 / は」とします。位置1で次の「は」を予測するとき、位置2の「は」を参照できたら答えが見えてしまいます。生成時には使えないこの経路をMaskで閉じます。</p>
  <div class="controls"><label class="check"><input id="causal" type="checkbox">Causal Maskで未来を隠す</label><label for="mask-query">予測する位置</label><select id="mask-query"><option value="0">位置0：日本の → 首都を予測</option><option value="1" selected>位置1：首都 → はを予測</option><option value="2">位置2：は → 次のtokenを予測</option></select></div>
  <div class="two"><div class="panel"><h3>Attention weight：行から列を見る</h3><div id="mask-map"></div></div><div><h3 id="mask-query-title"></h3><div id="mask-bars"></div><div id="mask-explanation" class="instruction" aria-live="polite"></div></div></div>
  <p class="source">チェックすると未来のscoreを−∞にし、softmaxを計算し直します。未来の重みが0になり、見える位置だけで合計1になります。Maskは現在の位置も参照できます。</p>
@@ -120,23 +134,10 @@ section{background:var(--paper);border:1px solid var(--line);border-radius:12px;
    <button id="reset-choices">履歴を消す</button>
   </div>
  </div>
- <div class="instruction">temperatureを0.2から2.5へ動かしてください。確率の差は変わりますが、一番高い候補は変わりません。greedyとsamplingで、それぞれ何度か選んでみましょう。</div>
+ <div class="instruction">temperatureを0.2から2.5へ動かしてください。確率の差は変わりますが、一番高い候補は変わりません。greedyとsamplingでそれぞれ何度か選んでみましょう。</div>
  <div class="source">このデモの候補は <span class="token">東京</span><span class="token">大阪</span><span class="token">京都</span> の3つだけです。実際のGPTは語彙全体のlogitsを返します。temperatureはモデルの重みを更新しません。</div>
 </section>
 
-<section id="generation" aria-labelledby="generation-title">
- <div class="section-top"><span class="number">導入・本文 1.12・1.13</span><span class="badge recorded">実測を再生</span></div>
- <h2 id="generation-title">選んだ1tokenが、次の入力になる。</h2>
- <p>参照コードのTiny GPTで記録した生成を、1tokenずつ再生します。学習前は意味のつながらない断片が出ても、予測と選択の処理は動いています。</p>
- <div class="record-options"><label for="record-stage">使うモデル</label><select id="record-stage"><option value="before">学習前</option><option value="after">10,000回の学習後</option></select><span id="record-step" class="step-label"></span></div>
- <div class="controls"><button id="next-token" class="primary">1token選んで追加する</button><button id="restart-generation">最初から見る</button></div>
- <div class="two">
-  <div><h3>モデルへの入力</h3><div id="record-prompt" class="prompt" aria-live="polite"></div><p id="record-status" class="record-status" aria-live="polite"></p><p class="small">青い部分が直前のdecodeで変わった箇所です。次の予測には、選んだtokenのIDも含まれます。byteの断片がそろうと文字の表示が確定します。</p></div>
-  <div><h3 id="distribution-title">次のtokenの確率</h3><div id="record-probabilities" class="record-probs"></div><p class="small">確率が高い5候補と、記録で選ばれた候補を表示します。1tokenだけでは文字にならないbyteの断片は「�」とIDで示します。棒の長さは確率に比例し、表示内の最大値に合わせて幅を調整しています。</p></div>
- </div>
- <div class="muted-box">samplingで選ぶtokenは、必ずしも確率が最大のtokenではありません。最後の位置の予測から1token選び、入力へ追加してから次の分布を計算します。</div>
- <div class="source">Python 3.14.7 / PyTorch 2.14.0 / MPS / 2,320,256 parameters / temperature 0.8 / sampling seed 100。ブラウザ上でGPTを動かしているのではなく、各入力に対する確率と選択結果の記録を再生しています。</div>
-</section>
 <footer>Part 1の本文と参照コード：<a href="../part1.md">本文（Markdown）</a> · <a href="../../sample/README.md">参照コードの案内</a><br>すべての計算・表示データをこのHTMLに含めています。外部への通信は行いません。</footer>
 </main>
 <script>
@@ -197,7 +198,7 @@ function renderGeneration() {
  $('record-prompt').textContent=newChars.slice(0,common).join('');
  const latest=document.createElement('mark');latest.textContent=newChars.slice(common).join('');$('record-prompt').append(latest);
  const chosenBefore=previous?previous.candidates.find(c=>c.id===previous.chosen):null;
- $('record-status').textContent=completed?records.length+' tokenを追加しました。モデルを切り替えて、同じ入力の続きと比べてみましょう。':state.step===0?'まだ続きを選んでいません。最後の位置の分布から1token選びます。':'直前に選んだのは「'+tokenName(chosenBefore)+'」。右側は伸びた入力から計算した次の分布です。';
+ $('record-status').textContent=completed?records.length+' tokenを追加しました。モデルを切り替えて同じ入力の続きと比べてみましょう。':state.step===0?'まだ続きを選んでいません。最後の位置の分布から1token選びます。':'直前に選んだのは「'+tokenName(chosenBefore)+'」。右側は伸びた入力から計算した次の分布です。';
  const record=records[Math.min(state.step,records.length-1)];
  $('distribution-title').textContent=completed?'最後に使った確率分布':'次のtokenの確率';
  const maximum=record.candidates[0].probability;
@@ -334,7 +335,7 @@ function renderMask() {
  $('mask-query-title').textContent='位置'+selected+'「'+names[selected]+'」からの参照';
  $('mask-bars').innerHTML='';
  weights[selected].forEach((w,j)=>$('mask-bars').append(barRow(names[j]+(j>selected?'（未来）':''),w)));
- $('mask-explanation').textContent=selected===2?'最後の位置には、どちらの設定でも未来の入力がありません。位置0か1を選び、学習中の予測で起きる違いを見てください。':causal?'未来の「'+names[selected+1]+'」の重みは0。正解のtokenを直接参照する経路を閉じました。':'次に当てる「'+names[selected+1]+'」が未来の入力にあり、重みも0ではありません。この経路から答えを参照できてしまいます。';
+ $('mask-explanation').textContent=selected===2?'最後の位置にはどちらの設定でも未来の入力がありません。位置0か1を選び、学習中の予測で起きる違いを見てください。':causal?'未来の「'+names[selected+1]+'」の重みは0。正解のtokenを直接参照する経路を閉じました。':'次に当てる「'+names[selected+1]+'」が未来の入力にあり、重みも0ではありません。この経路から答えを参照できてしまいます。';
 }
 $('causal').addEventListener('change',renderMask);
 $('mask-query').addEventListener('change',renderMask);
