@@ -186,29 +186,34 @@ def main():
     texts = ["合図は赤。答えは赤。", "合図は青。答えは青。"]
     tok = Tokenizer.from_texts(texts)   # 語彙は8文字
     x, y = make_dataset(texts, tok)
-    print(tok.stoi)
-    print("入力:", tok.decode(x[0].tolist()))
-    print("正解:", tok.decode(y[0].tolist()))
-    print("x / y:", tuple(x.shape), tuple(y.shape))
+    # print(tok.stoi)
+    # print("入力:", tok.decode(x[0].tolist()))
+    # print("正解:", tok.decode(y[0].tolist()))
+    # print("x / y:", tuple(x.shape), tuple(y.shape))
 
     torch.manual_seed(42)
     bigram = BigramLM(tok.vocab_size) # 表の中身はまだランダム。学習で意味のある値になる
     # 出力は [2文章, 9位置, 8候補]。位置ごとに「ここまでの文字列を見て、次の1文字を当てる」問題の答えが並んでいる。
-    print("logits:", tuple(bigram(x).shape))
+    # print("logits:", tuple(bigram(x).shape))
 
     # 学習前の表で予測する
     red_prompt = "合図は赤。答えは"
     blue_prompt = "合図は青。答えは"
+    print("\n学習前の予測\n")
     show_next(bigram, tok, red_prompt)
     show_next(bigram, tok, blue_prompt)
+    torch.manual_seed(10)
+    for _ in range(3):
+        print(generate(bigram, tok, red_prompt))
     # 前半が赤でも青でも分布が完全に一致する。最後の「は」の行しか見ていないため
-    assert torch.equal(next_probs(bigram, tok, red_prompt), next_probs(bigram, tok, blue_prompt))
+    # assert torch.equal(next_probs(bigram, tok, red_prompt), next_probs(bigram, tok, blue_prompt))
 
     # 学習する
-    print("学習前のloss:", loss_of(bigram, x, y))
+    # print("学習前のloss:", loss_of(bigram, x, y))
     fit_small(bigram, x, y)
-    print("学習後のloss:", loss_of(bigram, x, y))
+    # print("学習後のloss:", loss_of(bigram, x, y))
     # 学習で変わったのは8×8の表の値だけ。forwardは同じなので、前半を見ないことも変わらない
+    print("\n学習後の予測\n")
     show_next(bigram, tok, red_prompt)
     show_next(bigram, tok, blue_prompt)
 
@@ -220,9 +225,9 @@ def main():
     #   logit÷T で差が縮む/広がるだけなので、順位は変わらない:
     #   T=0.5  青 0.508  赤 0.492  。 0.0001 …   青と「。」のlogit差 4.4→8.7。「。」はほぼ0
     #   T=2.0  青 0.422  赤 0.419  。 0.048  …   差 4.4→2.2。「。」にも5%配られる
-    for temperature in (0.5, 1.0, 2.0):
-        print("temperature", temperature)
-        show_next(bigram, tok, red_prompt, temperature)
+    # for temperature in (0.5, 1.0, 2.0):
+    #     print("temperature", temperature)
+    #     show_next(bigram, tok, red_prompt, temperature)
 
 
 if __name__ == "__main__":
