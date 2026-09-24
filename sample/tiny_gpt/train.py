@@ -19,6 +19,7 @@ def batch_loss(
 ) -> torch.Tensor:
     logits = model(x)
     vocab_size = logits.shape[-1]
+    # cross_entropyは「予測と正解の組の一覧」を受け取るので、
     # B系列×T位置の予測と正解を、同じ順序でB×T組へ並べる。
     flat_logits = logits.reshape(-1, vocab_size)
     flat_targets = y.reshape(-1)
@@ -48,7 +49,10 @@ def train_model(
     config: Config,
 ) -> tuple[list[dict[str, float]], float]:
     optimizer = torch.optim.AdamW(
-        model.parameters(), lr=config.learning_rate, weight_decay=0.01
+        model.parameters(),
+        lr=config.learning_rate,
+        # パラメータが大きくなりすぎないよう、毎回わずかに縮める。
+        weight_decay=0.01,
     )
     generator = torch.Generator()
     generator.manual_seed(config.seed)
@@ -80,8 +84,10 @@ def train_model(
         loss = batch_loss(model, x, y)
         if not torch.isfinite(loss).item():
             raise RuntimeError("lossが有限の値ではありません")
-        loss.backward()   # 勾配を計算する。この時点ではパラメータは変わらない。
-        optimizer.step()  # 勾配に基づいてパラメータを更新する。
+        # 各パラメータを少し増やすとlossが増えるか減るかを求める。まだ値は変えない。
+        loss.backward()
+        # lossが下がる向き（勾配と逆）へ、各パラメータを少し動かす。
+        optimizer.step()
 
     elapsed = time.perf_counter() - started
     return history, elapsed

@@ -1,7 +1,7 @@
 class Config:
     def __init__(self) -> None:
-        # 1tokenを表すベクトルの次元数（shapeの D）。Embeddingから
-        # Attention・MLP・LM Headまで、すべての部品がこの幅でつながる
+        # 1tokenを表すベクトルの次元数（shapeの D）。1tokenの性質を
+        # D個の数で表すので、Dが大きいほど1tokenに持たせられる性質の数が増える
         self.d_model: int = 128
         # 1系列に入れるtoken数の上限。shapeの T はこの値以下。
         # Attentionが参照できる範囲であり、生成時に見返せる長さでもある
@@ -12,7 +12,8 @@ class Config:
         # パラメータを更新する回数。
         # 1stepで batch_size × context_length 個のtokenから学習する
         self.steps: int = 10000
-        # 1回の更新で、勾配の方向へパラメータを動かす幅。AdamWに渡す
+        # 1回の更新でパラメータを動かす幅。lossが下がる向きへ、
+        # この幅に応じて動かす（1.11で扱う）。AdamWに渡す
         self.learning_rate: float = 0.0003
         # 何stepごとにvalidationのlossを測るか
         self.eval_every: int = 1000

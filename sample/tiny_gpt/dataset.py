@@ -33,9 +33,10 @@ def make_batch(
     config: Config,
     generator: torch.Generator,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    # 長い1本のtoken列から、ランダムな位置でT個ずつ切り出した「窓」をB本集める。
+    # 長い1本のtoken列から、ランダムな位置でT+1個ずつ切り出した「窓」をB本集め、
+    # 先頭T個を入力、1つ先のT個を正解にする。
     # 文書の先頭から順に読むのではなく、毎回ばらばらの場所から練習問題を作る。
-    # 例（T=8）: ある窓が「は、上記の問題へ」なら、
+    # 例（T=8）: ある窓が「は、上記の問題への」なら、
     #   入力 x: は 、 上 記 の 問 題 へ
     #   正解 y: 、 上 記 の 問 題 へ の
     # となり、「は→、」「は、→上」「は、上→記」… と
@@ -56,7 +57,7 @@ def make_batch(
         inputs.append(data[start:end])
         targets.append(data[start + 1:end + 1])
 
-    # B本の窓を縦に並べて、shape [B, T] の入力と正解にする。
+    # B本の窓を1回の更新でまとめて学習するため、1つの表に積む。[B, T]
     x = torch.stack(inputs)
     y = torch.stack(targets)
     return x, y
