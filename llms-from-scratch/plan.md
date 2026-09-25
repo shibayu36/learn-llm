@@ -1,0 +1,145 @@
+# llms-from-scratch の学習計画
+
+## 目的
+
+書籍『つくりながら学ぶ！LLM自作入門』（Sebastian Raschka, Build a Large Language Model (From Scratch) の日本語訳。以下「本」）のコードを参考にしながら、GPTを自分の手で組み立て、部品を1つずつ拡張しながら出力と評価値の変化を観察する。
+
+本のとおりに進めると理解が追いつかなかったので、次の3点を本から変える。
+
+- パラメータ数を減らす。1回の学習をCPUで数分以内に終え、条件を変えた比較を何度も回せるようにする
+- 日本語を学習させる。生成結果の変化を自分の目で読み取れるようにする
+- Attentionまわりを「1層・1ヘッド → 複数層 → Multi-head」の順に拡張し、段階ごとに出力を見て評価する。本は第3章でMulti-headまで作ってから第4章で層を積むが、ここでは最小構成で学習・生成まで通してから拡張する
+
+`docs/` の自作ハンズオン資料と `tiny-gpt-handson/` は中断した。`docs/handson-plan.md` の制作基準はここでは使わない。ただし、日本語データの固定条件・文字Tokenizer・評価のそろえ方はそこで決めたものを流用する。
+
+## 本との対応
+
+| 本 | ここでの扱い |
+|---|---|
+| 第2章 テキストデータの準備（2.2〜2.4 Tokenizer、2.6 スライディングウィンドウ、2.7〜2.8 埋め込み） | Stage 1。Tokenizerは本の `SimpleTokenizerV2` の考え方を文字単位に置き換える。2.5 BPE（tiktoken）は使わない。2.6の `GPTDatasetV1` + `DataLoader` はそのまま参考にする |
+| 第3章 Attentionメカニズムのコーディング（3.4 学習可能な重み、3.5 Causal Attention） | Stage 0で実装済み（`SelfAttention_v1`、`CausalAttention`） |
+| 第3章 3.6 Multi-head Attention | Stage 5。本と同じく `MultiHeadAttentionWrapper`（ヘッドを並べて連結）→ `MultiHeadAttention`（1つの行列を分割）の2段階で作る |
+| 第4章 GPTモデルを一から実装する（4.2 LayerNorm、4.3 GELU/FFN、4.4 ショートカット、4.5 Transformerブロック） | Stage 0で実装済み |
+| 第4章 4.6 GPTモデル | Stage 0で1層版 `OneLayerOneHeadGPT` を実装済み。層を積む `GPTModel` はStage 4 |
+| 第4章 4.7 テキストを生成する | Stage 2。`generate_text_simple`（greedy） |
+| 第5章 ラベルなしデータでの事前学習（5.1 評価、5.2 訓練、5.3 デコーディング戦略、5.4 保存と読み込み） | Stage 2〜3。損失関数・訓練ループ・temperature・top-k・保存 |
+| 第5章 5.5 OpenAIの重みを読み込む | やらない。語彙もサイズも違うので読み込めない |
+| 第6章 分類のためのファインチューニング | やらない（必要になったら再検討） |
+| 第7章 指示に従うためのファインチューニング | Stage 6の候補。Multi-headまで終えてから判断する |
+| 付録D 訓練ループの高度なテクニック（warmup、cosine減衰、勾配クリッピング） | Stage 6の候補 |
+| 付録E LoRA | やらない（必要になったら再検討） |
+
+## 本から変える決定事項
+
+- Tokenizerは1文字1token。trainに現れた文字にEOS・UNKを加えた語彙（約4,052）。tiktokenのGPT-2 BPEは日本語がbyte断片になり生成結果が読めないため使わない
+- 学習データは `hotchpotch/fineweb-2-edu-japanese` の `small_tokens_cleaned` から固定した1万文書（train 9,000・validation 1,000）。取得条件は `data/fineweb-japanese-10k/manifest.json`
+- 本の `GPTModel` は `n_layers`・`n_heads` を最初から持つが、ここでは1層1ヘッドと分かる `OneLayerOneHeadGPT` を先に作り、層を積む版・Multi-head版は後で別クラスとして足す。`OneLayerOneHeadGPT` は比較の基準として残す
+- MLP中間次元は本どおり `4 * d_model` 固定。dropoutなし。Q/K/Vと出力層はbiasなし
+- Causal maskは本の `CausalAttention` と同じ `triu(diagonal=1)` + `masked_fill(-inf)`
+- 本では `GPT_CONFIG_124M` の辞書だが、ここでは `Config` クラス（型付き）にする
+- 実行はCPU固定。device選択のコードは書かない
+- コードのコメントは本の用語（「Causal Attention」「ショートカット接続」「層正規化」など）に合わせる
+
+## 実行条件
+
+| 条件 | 基準値 |
+|---|---:|
+| `d_model` | 64 |
+| `context_length` | 64 |
+| `batch_size` | 16 |
+| MLP中間次元 | 256（`4 * d_model`） |
+| 更新回数 `steps` | 2,000 |
+| 学習率 | 3e-4（AdamW） |
+| 語彙数 | 約4,052 |
+| 1層1ヘッドのパラメータ数 | 568,512（うちEmbedding+出力層が518,656） |
+
+パラメータ数の9割はEmbeddingと出力層で、層やヘッドを増やしても1層あたり約46,000しか増えない。層数・ヘッド数の比較で「パラメータ数がほぼ変わらないのに結果が変わるか」を見られる。
+
+更新回数はStage 3で基準の学習時間を測ってから見直す。1回の学習が1〜2分で終わるなら増やしてよい。
+
+## 評価のそろえ方
+
+段階ごとに次を同じ条件で記録し、`runs/<run_name>/metrics.json` に保存する。
+
+- パラメータ数
+- train loss・validation loss（一定step間隔。評価バッチは固定seedで同じ窓を使う）
+- 固定promptからの生成（greedyとsampling temperature 0.8。samplingのseed固定）
+- 学習と評価の所要秒数
+
+固定promptは「日本の首都は」「猫は」「健康を保つためには、」「プログラミングを学ぶには、」と、validation文書の冒頭2件。学習前後を同じpromptで比べる。
+
+比較ではデータ・更新回数・batch・context・seedを揃え、変えるのは層数またはヘッド数だけにする。単一seedで得た差を一般則にしない。lossの低下と、文章らしさ、話題を保つ能力は区別して読む。
+
+## ファイル構成
+
+```
+llms-from-scratch/
+  config.py        Config（Stage 4で n_layers、Stage 5で n_heads を追加）
+  gpt.py           モデルの部品とGPT本体（本のgpt.pyに相当）
+  tokenizer.py     文字Tokenizer（Stage 1）
+  dataset.py       GPTDataset + DataLoader（Stage 1）
+  generate.py      generate_text_simple → generate（Stage 2〜3）
+  train.py         損失・評価・訓練ループ・保存（Stage 2〜3）
+  main.py          1回の学習と学習前後の生成を実行する入口
+  experiments/     層数・ヘッド数の比較スクリプト（Stage 4〜）
+  runs/            実行結果（metrics.json、loss.png、model.pt）
+  data/            固定した日本語データ
+  prepare_data.py  データ取得
+```
+
+本は章ごとにNotebookで進めるが、ここでは部品をモジュールに分け、`main.py` 1本を実行入口にする。各節の動作確認は `main.py` に書き、次の段階へ進むときに不要な確認コードは消す。
+
+## 段階
+
+### Stage 0：部品の実装（完了）
+
+本の第3章・第4章に沿って `gpt.py` に `SelfAttention_v1`・`CausalAttention`・`LayerNorm`・`GELU`・`FeedForward`・`TransformerBlock`・`OneLayerOneHeadGPT` を実装した。日本語データも取得済み。
+
+### Stage 1：Tokenizerとデータ（本 2.2〜2.8）
+
+- 文字Tokenizer（`encode`・`decode`、EOS・UNK）
+- 全文書をEOSで区切って1本のtoken列にし、本の `GPTDatasetV1` と `create_dataloader_v1` のように窓を切り出す
+- 動作確認：短い日本語をencode→decodeして戻ること。1バッチの入力と正解が1文字ずれていること。`OneLayerOneHeadGPT` に通して `[B, T, vocab_size]` が返ること
+
+### Stage 2：生成と損失（本 4.7、5.1）
+
+- `generate_text_simple`（greedy）で、学習前のモデルから「日本の首都は」の続きを出す。でたらめな文字列になることを確認する
+- 損失（cross entropy）を1バッチで計算し、学習前の値が `ln(vocab_size)` 付近であることを確認する
+
+### Stage 3：1層1ヘッドの学習（本 5.2〜5.4）
+
+- 訓練ループ（AdamW）、一定stepごとのtrain/validation loss、学習中の生成サンプル表示
+- temperatureとtop-kによるsampling
+- 学習後のモデル・Config・語彙の保存と読み込み
+- 基準の記録：パラメータ数、loss曲線、学習前後の生成、所要時間
+- 観察：学習前のでたらめな文字列から、日本語の語句や文末のつながりが現れるか。話題を保った文章になっているか
+
+### Stage 4：複数層（本 4.6）
+
+- Configに `n_layers` を追加し、`TransformerBlock` を `nn.Sequential` で積む `GPTModel` を作る（本の `GPTModel` と同じ形。Attentionは1ヘッドのまま）
+- `n_layers=1` の `GPTModel` が `OneLayerOneHeadGPT` と同じパラメータ数・同じ動きになることを確認する
+- 実験：1・2・4層を同じ条件で学習し、パラメータ数・loss・生成・時間を並べる
+- 観察：層を増やせばlossが下がるか。下がらないなら容量不足かデータ不足か学習不足か。生成の質は変わるか
+- 任意：ショートカット接続を外すと深い層で学習が進まなくなるか（本 4.4の実験を学習で再現）
+
+### Stage 5：Multi-head Attention（本 3.6）
+
+- まず `MultiHeadAttentionWrapper`（`CausalAttention` を `n_heads` 個並べて連結）を作り、出力の次元が `n_heads * d_out` になることを確認する
+- 次に `MultiHeadAttention`（1つの `W_query` などを `n_heads` に分割し、`view`・`transpose` で並列計算し、`out_proj` で戻す）を作り、`d_model` を固定したままヘッド数だけ変えられるようにする
+- Configに `n_heads` を追加し、`GPTModel` のAttentionを `MultiHeadAttention` に置き換える。`n_heads=1` で結果が変わらないことを確認する
+- 実験：`d_model=64` 固定で1・2・4ヘッドを比べる。Q/K/Vのパラメータ数がヘッド数で変わらないことを確認する
+- 観察：ヘッドごとのAttention weightを同じ入力で並べ、ヘッドによって見る位置が違うか。lossと生成は変わるか
+
+### Stage 6：その後の候補
+
+Stage 5まで終えてから、次のどれをやるか決める。
+
+- 付録D：warmup・cosine減衰・勾配クリッピングを入れて学習が安定・改善するか
+- 第7章：小さな日本語の指示データでInstruction Tuning
+- `d_model`・`context_length`・更新回数を増やしたときの変化
+
+## この計画を見直す条件
+
+- 1回の学習が5分を超えるようになったら、更新回数か `d_model` を下げる
+- 語彙やデータを変えるなら、Tokenizerとモデルを組にして作り直す
+- 実験用の分岐が `gpt.py` に増えて読みにくくなったら、基準のモデルと実験スクリプトの責務を分ける
