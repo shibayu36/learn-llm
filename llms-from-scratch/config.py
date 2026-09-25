@@ -3,7 +3,7 @@ class Config:
         # 1tokenを表すベクトルの次元数（shapeの D）。パラメータ数を最も大きく左右する
         self.d_model: int = 64
         # 一度にモデルへ入れる系列の最大token数（shapeの T）
-        self.context_length: int = 64
+        self.context_length: int = 256
         # 1stepの更新で同時に学習する系列の数（shapeの B）
         self.batch_size: int = 16
         # パラメータを更新する回数
