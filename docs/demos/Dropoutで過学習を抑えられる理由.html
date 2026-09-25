@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Dropoutはなぜ使うの？</title>
+<style>
+:root{--bg:#f6f5ef;--paper:#fff;--ink:#25332e;--muted:#5a6962;--line:#d9e1d9;--green:#176c53;--soft:#e4f2e9;--orange:#aa4b22;--orange-soft:#fcebdd;color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.8 -apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif}
+main{max-width:1000px;margin:auto;padding:48px 28px 60px}
+header{margin-bottom:32px}
+.eyebrow,.step{font-size:13px;font-weight:700;letter-spacing:.1em;color:var(--green)}
+h1{font-size:clamp(32px,5vw,52px);line-height:1.4;margin:13px 0 20px}
+h2{font-size:clamp(23px,3vw,29px);line-height:1.5;margin:8px 0 12px}
+h3{font-size:19px;margin:0 0 6px}
+p{margin:8px 0 18px}
+.lead{font-size:19px}
+.lead strong{background:linear-gradient(transparent 65%,#cee6d6 65%)}
+section{padding:30px;background:var(--paper);border:1px solid var(--line);border-radius:20px;margin-bottom:26px}
+.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:26px;margin:24px 0 8px}
+.sheet{padding:24px;background:#f5f7f3;border-radius:12px;min-width:0}
+.sheet.new{background:var(--orange-soft)}
+.sheet-label{font-size:14px;color:var(--muted)}
+.exercise{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:clamp(21px,3vw,29px);margin:14px 0}
+.exercise b{font-size:32px;color:var(--green)}
+.new .exercise b{color:var(--orange)}
+.sheet p{font-size:15px;margin:16px 0 0}
+.takeaway{font-size:18px;font-weight:600;margin:22px 0 0}
+.small,.caption{font-size:13px;color:var(--muted)}
+.caption{margin:10px 0 0}
+.analogy{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:12px;margin:26px 0;font-size:19px}
+.analogy strong{padding:12px 18px;background:var(--soft);border-radius:10px}
+.controls{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:20px 0 12px}
+button{font:inherit;border:1px solid #acbeb3;background:var(--paper);color:var(--ink);border-radius:8px;cursor:pointer;padding:10px 16px;min-height:44px}
+button:hover{background:var(--soft)}
+button.primary,button[aria-pressed="true"]{background:var(--green);border-color:var(--green);color:white}
+:focus-visible{outline:3px solid var(--orange);outline-offset:4px}
+.legend{display:flex;gap:18px;flex-wrap:wrap;align-items:center;font-size:13px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:7px}
+.dot{display:inline-block;width:15px;height:15px;border-radius:50%;background:var(--green)}
+.dot.rest{background:#edf0ec;border:2px dashed #7a867e}
+.network{display:block;width:100%;height:342px;margin-top:15px}
+.network text{font-family:inherit;fill:var(--ink);font-size:15px;text-anchor:middle}
+.network .heading{font-size:14px;fill:var(--muted)}
+.network .wire{stroke:#a0c9b7;stroke-width:2;transition:opacity .25s ease}
+.network .wire.off{opacity:.12;stroke-dasharray:4 5}
+.network .unit circle{fill:var(--green);stroke:var(--green);stroke-width:2;transition:fill .25s ease}
+.network .unit text{fill:white;font-size:16px;font-weight:600}
+.network .unit.off circle{fill:#edf0ec;stroke:#7a867e;stroke-dasharray:4 4}
+.network .unit.off text{fill:#5a6962;font-size:13px}
+.network .end circle{fill:var(--soft);stroke:#a0c9b7;stroke-width:2}
+.network .end text{font-size:15px}
+.status{background:var(--soft);padding:14px 18px;border-radius:10px;font-size:16px;min-height:3.5em;margin:10px 0}
+.reason{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:16px;margin:26px 0 10px}
+.reason div{padding:20px;background:#f5f7f3;border-radius:12px;text-align:center;font-size:18px}
+.reason strong{color:var(--green)}
+.arrow{font-size:25px;color:var(--muted)}
+.learning-cycle{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;list-style:none;padding:0;margin:24px 0}
+.learning-cycle li{padding:16px;background:var(--soft);border-radius:10px}
+.learning-cycle b{display:block;color:var(--green);font-size:13px;margin-bottom:5px}
+.contribution{font-size:27px;font-weight:600;margin:14px 0}
+.comparison{width:100%;border-collapse:collapse;table-layout:fixed;margin:22px 0;font-size:15px;font-variant-numeric:tabular-nums}
+.comparison caption{text-align:left;color:var(--muted);font-size:13px;padding-bottom:9px}
+.comparison th,.comparison td{padding:12px 10px;border-bottom:1px solid var(--line);text-align:center;overflow-wrap:anywhere}
+.comparison thead th{background:#f5f7f3;font-size:14px}
+.comparison th:first-child{text-align:left}
+.comparison td strong{color:var(--green)}
+.comparison tfoot{background:var(--soft);font-weight:600}
+.comparison .selected{background:var(--soft)}
+.roles td{text-align:left}
+.explanation-block{margin-top:26px}
+.formula{font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.note{background:#efece1;border:0}
+.note h2{font-size:23px}
+.note p{margin-bottom:0}
+details{font-size:14px;color:var(--muted);margin-top:22px}
+summary{cursor:pointer;min-height:44px;padding:8px 0}
+details p{margin:10px 0}
+.source{overflow-wrap:anywhere;font-size:12px}
+a{color:var(--green);text-underline-offset:3px}
+.noscript{padding:16px;background:var(--orange-soft)}
+@media(max-width:600px){main{padding:25px 15px 40px}section{padding:22px 18px}.lead{font-size:17px}.two{grid-template-columns:1fr;gap:14px}.sheet{padding:18px 20px}.exercise{font-size:25px;margin:8px 0}.reason{grid-template-columns:1fr;gap:8px}.reason .arrow{transform:rotate(90deg);text-align:center}.analogy{font-size:17px;gap:8px}.analogy strong{padding:8px 12px}.controls{gap:8px}button{font-size:14px;padding:10px 12px}.status{font-size:15px;padding:12px}.network .heading{font-size:12px}}
+@media(max-width:600px){.learning-cycle{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.learning-cycle li{padding:12px;font-size:14px}.comparison{font-size:14px}.comparison th,.comparison td{padding:10px 6px}.comparison thead th{font-size:13px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div class="eyebrow">DROPOUTはなぜ使うの？</div>
+  <h1>ときどき休ませて、<br>頼りすぎを防ぐ。</h1>
+  <p class="lead">練習問題だけ上手になっても、初めての問題で困ります。<br>Dropoutは<strong>「覚えすぎ」を抑えるための工夫</strong>です。</p>
+</header>
+
+<section aria-labelledby="problem-heading">
+  <div class="step">01 / 起きていた課題</div>
+  <h2 id="problem-heading">答えを覚えた。でも、解き方が身につかない。</h2>
+  <p>たとえば、練習プリントの答えを順番に「3、5、7」と丸暗記したら？</p>
+  <div class="two">
+    <div class="sheet" role="img" aria-label="練習プリントでは、1足す2は3、2足す3は5、3足す4は7と全問正解">
+      <div class="sheet-label">何度も見た練習プリント</div>
+      <div class="exercise"><span>1 ＋ 2 ＝ 3</span><b>○</b></div>
+      <div class="exercise"><span>2 ＋ 3 ＝ 5</span><b>○</b></div>
+      <div class="exercise"><span>3 ＋ 4 ＝ 7</span><b>○</b></div>
+      <p>「いつもの答えなら、わかる！」</p>
+    </div>
+    <div class="sheet new" role="img" aria-label="初めてのプリントで問題の順番が変わると、覚えた答えの順番は役に立たない">
+      <div class="sheet-label">初めて見るプリント</div>
+      <div class="exercise"><span>3 ＋ 4 ＝ 3</span><b>×</b></div>
+      <div class="exercise"><span>1 ＋ 2 ＝ 5</span><b>×</b></div>
+      <div class="exercise"><span>2 ＋ 3 ＝ 7</span><b>×</b></div>
+      <p>「あれ？ 答えを覚えたはずなのに…」</p>
+    </div>
+  </div>
+  <p class="takeaway">AIにも似たことが起きます。これが「過学習」。</p>
+  <p class="caption">プリントはたとえです。AIでは、学習データにだけある偶然の特徴や細かなノイズまで覚え、新しいデータでうまく答えられなくなることを指します。</p>
+</section>
+
+<section aria-labelledby="solution-heading">
+  <div class="step">02 / 解決案</div>
+  <h2 id="solution-heading">練習中だけ、何人かをランダムに休ませる。</h2>
+  <p>ニューラルネットは、小さな計算係のチーム。<br>いつも同じ仲間の働きに頼る組み合わせを作れてしまいます。</p>
+  <div class="analogy" aria-label="毎回メンバーが変わっても答えられるように練習する">
+    <strong>毎回、誰かがお休み</strong><span class="arrow" aria-hidden="true">→</span><strong>残った仲間で練習</strong>
+  </div>
+  <p>これが<strong>Dropout</strong>。休む係の出力を、一時的に0にします。</p>
+  <div class="reason">
+    <div>「この仲間がいるときだけ<br>うまくいく」が使いにくい</div>
+    <span class="arrow" aria-hidden="true">→</span>
+    <div>特定の組み合わせへの<br><strong>頼りすぎを抑えられる</strong></div>
+  </div>
+  <p class="takeaway">結果として、練習データだけに合わせすぎるのを防ぎやすくなります。</p>
+</section>
+
+<section aria-labelledby="why-heading">
+  <div class="step">03 / なぜ休ませると効くの？</div>
+  <h2 id="why-heading">休んだ状態での失敗が、覚え方を変える。</h2>
+  <p>ポイントは、<strong>誰かが休んでいても正解できるように、重みを調整する</strong>ことです。重みは、それぞれの係の出力が答えにどれくらい影響するかを決める数値です。</p>
+  <ol class="learning-cycle" aria-label="Dropoutを使った学習の繰り返し">
+    <li><b>1 / 休ませる</b>今回休む係を<br>ランダムに選ぶ</li>
+    <li><b>2 / 答える</b>残った係で<br>答えを出す</li>
+    <li><b>3 / 採点する</b>正解との<br>ズレを見る</li>
+    <li><b>4 / 調整する</b>ズレが減る方向に<br>重みを変える</li>
+  </ol>
+  <p class="caption">この1〜4を繰り返します。休む係が変わるため、毎回同じ組み合わせには頼れません。</p>
+
+  <div class="explanation-block">
+    <h3>正解が「10」の、小さな例で比べよう。</h3>
+    <p>AとBの出力を足して答える、2つのモデルを考えます。全員がいれば、どちらも正解です。</p>
+    <div class="two">
+      <div class="sheet"><div class="sheet-label">Aに集中するモデル</div><div class="contribution">A：10 ＋ B：0</div><p>Aだけに頼って答える。</p></div>
+      <div class="sheet"><div class="sheet-label">分担するモデル</div><div class="contribution">A：5 ＋ B：5</div><p>AとBで分けて答える。</p></div>
+    </div>
+    <p>各係を<strong>50%の確率で、独立に</strong>休ませます。一般的な実装に合わせ、残った係の出力は<strong>2倍</strong>にします。平均的な出力の大きさを保つための調整です。</p>
+    <table class="comparison">
+      <caption>休む係の4パターンとモデルの答え。各パターンの確率は25%。正解は10。</caption>
+      <thead><tr><th scope="col">参加する係</th><th scope="col">Aに集中する<br>モデル</th><th scope="col">分担する<br>モデル</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">A・B</th><td>20</td><td>20</td></tr>
+        <tr><th scope="row">Aだけ</th><td>20</td><td><strong>10（正解）</strong></td></tr>
+        <tr><th scope="row">Bだけ</th><td>0</td><td><strong>10（正解）</strong></td></tr>
+        <tr><th scope="row">誰もいない</th><td>0</td><td>0</td></tr>
+      </tbody>
+      <tfoot><tr><th scope="row">ズレの2乗の平均<br><span class="small">小さいほどよい</span></th><td>100</td><td><strong>50</strong></td></tr></tfoot>
+    </table>
+    <p class="takeaway">Aに頼りきると、休まれたときに失敗しやすい。</p>
+    <p>その失敗を減らすように学習するので、頼り方が変わります。大きなネットワークでも、特定の係の細かな連携に依存した<strong>「練習データ専用の覚え方」</strong>が使いにくくなります。</p>
+    <p class="caption">この例は依存を分散する効果を示す模型です。Dropoutが必ず正しい特徴を学ばせることや、未知のデータで必ず成績を上げることを証明するものではありません。</p>
+    <details>
+      <summary>「ズレの2乗の平均」の計算</summary>
+      <p>各パターンで「モデルの答え − 正解の10」を2乗し、4パターンの平均を取ります。大きく外すほど、点数が悪くなる採点方法です。</p>
+      <p class="formula">Aに集中：(10² ＋ 10² ＋ (−10)² ＋ (−10)²) ÷ 4 ＝ 100</p>
+      <p class="formula">分担する：(10² ＋ 0² ＋ 0² ＋ (−10)²) ÷ 4 ＝ 50</p>
+    </details>
+  </div>
+</section>
+
+<section aria-labelledby="demo-heading">
+  <div class="step">04 / 図を動かしてみよう</div>
+  <h2 id="demo-heading">練習ではお休み。本番では全員集合。</h2>
+  <p>丸が計算係、線が情報の通り道です。<br>「次の練習」で、使うメンバーがどう変わるか見てみましょう。</p>
+  <noscript><p class="noscript">動く図を見るにはJavaScriptを有効にしてください。練習中は各係をランダムに休ませ、本番では全員を使います。</p></noscript>
+  <div class="controls">
+    <button type="button" id="next" class="primary">次の練習</button>
+    <button type="button" id="inference" aria-pressed="false">本番：全員を使う</button>
+    <button type="button" id="without" aria-pressed="false">Dropoutなしと比べる</button>
+  </div>
+  <div class="legend"><span><i class="dot" aria-hidden="true"></i>使う係</span><span><i class="dot rest" aria-hidden="true"></i>お休み：出力が0</span><span id="probability">休む確率：各係50%</span></div>
+  <svg id="network" class="network" role="img" aria-labelledby="network-title network-desc">
+    <title id="network-title">Dropoutで練習に使う計算係が変わる図</title>
+    <desc id="network-desc">6つの計算係のうち、ランダムに選ばれた係の出力が0になる。入力と答えの係はこの図では休まない。</desc>
+    <g id="network-drawing"></g>
+  </svg>
+  <p id="status" class="status" role="status" aria-live="polite"></p>
+  <p id="explanation">休む係は毎回選び直します。次の練習では復帰することもあります。</p>
+  <p class="caption">50%は「必ず半分休む」という意味ではありません。休む人数も変わります。この図は仕組みの模型で、実際の学習や正解率は計算していません。</p>
+  <details>
+    <summary>もう少し正確にいうと</summary>
+    <p>「係」はユニットのたとえです。実際にはDropoutを置いた場所で、計算結果の各要素を確率pで0にします。重みやユニットを永久に削除するわけではありません。</p>
+    <p>一般的な実装では、練習中に残した値を1 / (1 − p)倍します。50%なら2倍です。平均的な値の大きさを揃えるための調整で、通常の本番ではDropoutを無効にして値をそのまま通します。この倍率は図では省いています。</p>
+    <p>「本番」と「Dropoutなし」はどちらも全員を使うため、図は同じ形です。違いはそれまでの練習方法にあります。図のボタンを切り替えるだけで、学習済みモデルができるわけではありません。</p>
+  </details>
+</section>
+
+<section aria-labelledby="rate-heading">
+  <div class="step">05 / 休む確率はどう決まるの？</div>
+  <h2 id="rate-heading">確率は設定し、成績を比べて選ぶ。</h2>
+  <p>通常はモデルを作る人が設定し、実験して選びます。この設定値を<strong>ハイパーパラメータ</strong>と呼びます。</p>
+  <div class="two">
+    <div class="sheet"><h3>休む確率</h3><p>人が設定する。<br>たとえば「各係が30%の確率で休む」。</p></div>
+    <div class="sheet"><h3>今回、休む係</h3><p>設定した確率に従って、<br>学習中に乱数で選び直す。</p></div>
+  </div>
+  <p>たとえば確率を0%・10%・30%・50%と変え、それぞれの設定でモデルを学習させます。これは試し方の例で、<strong>50%がいつでも正解というわけではありません</strong>。</p>
+  <p>確率を大きくすると使える情報が減り、学習への制約が強まります。制約が弱すぎると過学習が残り、強すぎると必要なことまで学べなくなる場合があります。</p>
+  <p class="takeaway">ちょうどよい確率は、別の問題での成績を見て選びます。</p>
+</section>
+
+<section aria-labelledby="validation-heading">
+  <div class="step">06 / 学習に使っていないデータで確かめるとは？</div>
+  <h2 id="validation-heading">練習プリントと、模擬試験を分けておく。</h2>
+  <p>正解付きの画像が1,000枚あるなら、<strong>学習を始める前に</strong>3つに分けておきます。</p>
+  <table class="comparison roles">
+    <caption>データの分け方の例。枚数や比率は固定の決まりではありません。</caption>
+    <thead><tr><th scope="col">データ</th><th scope="col">使い道</th><th scope="col">その間違いで<br>重みを直す？</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">学習用<br>800枚</th><td>答える練習をする</td><td><strong>直す</strong></td></tr>
+      <tr><th scope="row">検証用<br>100枚</th><td>Dropoutの確率などを選ぶ</td><td>直さず、採点する</td></tr>
+      <tr><th scope="row">テスト用<br>100枚</th><td>最後に実力を測る</td><td>直さず、採点する</td></tr>
+    </tbody>
+  </table>
+  <p>検証では、学習済みモデルに検証用画像を見せます。予測を正解と比べますが、<strong>その間違いを使って重みは更新しません</strong>。通常、この採点時にはDropoutを無効にします。</p>
+  <div class="explanation-block">
+    <h3>練習の成績が少し下がっても、初めての問題に強くなった。</h3>
+    <table class="comparison">
+      <caption>設定を選ぶための架空の結果。学習用・検証用とも、採点時はDropoutを無効にしています。</caption>
+      <thead><tr><th scope="col">休む確率</th><th scope="col">学習用の<br>正解率</th><th scope="col">検証用の<br>正解率</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">0%</th><td>99%</td><td>80%</td></tr>
+        <tr class="selected"><th scope="row">20%<br><span class="small">この例では選ぶ</span></th><td>95%</td><td><strong>90%</strong></td></tr>
+        <tr><th scope="row">80%</th><td>70%</td><td>68%</td></tr>
+      </tbody>
+    </table>
+    <p>この結果なら20%を選びます。練習問題での成績が少し下がっても、<strong>重みの学習に使っていない問題での成績が上がっている</strong>からです。</p>
+    <p>検証用の成績を何度も見て設定を選ぶと、その検証用データに都合のよい設定になる可能性もあります。そこで、<strong>設定選びにも使っていないテスト用データ</strong>を最後まで残しておきます。</p>
+  </div>
+</section>
+
+<section class="note" aria-labelledby="note-heading">
+  <h2 id="note-heading">いつでも必要、というわけではありません。</h2>
+  <p>休ませすぎると、十分に学べないこともあります。<br>Dropoutを使うか・どれくらい休ませるかは、<strong>学習に使っていないデータで確かめます</strong>。</p>
+</section>
+
+<footer>
+  <details>
+    <summary>参考資料</summary>
+    <p class="source">過学習とDropoutの考え方 — Srivastavaほか（2014）: <a href="https://jmlr.org/papers/v15/srivastava14a.html">https://jmlr.org/papers/v15/srivastava14a.html</a></p>
+    <p class="source">学習時の0化・倍率調整・評価時の動作 — PyTorch Dropout: <a href="https://docs.pytorch.org/docs/2.14/generated/torch.nn.Dropout.html">https://docs.pytorch.org/docs/2.14/generated/torch.nn.Dropout.html</a></p>
+    <p class="source">学習用・検証用・テスト用の分け方 — scikit-learn: <a href="https://scikit-learn.org/stable/modules/cross_validation.html">https://scikit-learn.org/stable/modules/cross_validation.html</a></p>
+  </details>
+</footer>
+</main>
+<script>
+(() => {
+  'use strict';
+  const byId = id => document.getElementById(id);
+  const network = byId('network');
+  const drawing = byId('network-drawing');
+  const names = ['A', 'B', 'C', 'D', 'E', 'F'];
+  let mode = 'training';
+  let round = 1;
+  let active = sampleMask();
+
+  function sampleMask() {
+    return names.map(() => Math.random() >= 0.5);
+  }
+
+  function render() {
+    const width = network.getBoundingClientRect().width;
+    if (!width) return;
+    network.setAttribute('viewBox', `0 0 ${width} 342`);
+    const left = 33;
+    const middle = width / 2;
+    const right = width - 33;
+    const inputs = [108, 178, 248];
+    const positions = names.map((_, index) => 58 + index * 50);
+    const mask = mode === 'training' ? active : names.map(() => true);
+    let markup = `<text class="heading" x="${left}" y="20">入力</text><text class="heading" x="${middle}" y="20">計算する係</text><text class="heading" x="${right}" y="20">答え</text>`;
+    mask.forEach((isActive, index) => {
+      const className = isActive ? 'wire' : 'wire off';
+      inputs.forEach(y => {
+        markup += `<line class="${className}" x1="${left}" y1="${y}" x2="${middle}" y2="${positions[index]}"/>`;
+      });
+      markup += `<line class="${className}" x1="${middle}" y1="${positions[index]}" x2="${right}" y2="178"/>`;
+    });
+    inputs.forEach((y, index) => {
+      markup += `<g class="end"><circle cx="${left}" cy="${y}" r="25"/><text x="${left}" y="${y + 6}">${index + 1}</text></g>`;
+    });
+    markup += `<g class="end"><circle cx="${right}" cy="178" r="27"/><text x="${right}" y="184">答え</text></g>`;
+    mask.forEach((isActive, index) => {
+      markup += `<g class="unit${isActive ? '' : ' off'}"><circle cx="${middle}" cy="${positions[index]}" r="21"/><text x="${middle}" y="${positions[index] + 5}">${isActive ? names[index] : '休み'}</text></g>`;
+    });
+    drawing.innerHTML = markup;
+    const resting = names.filter((_, index) => !mask[index]);
+    const current = mode === 'inference' ? '本番：6つの係を全部使います。' : mode === 'without' ? 'Dropoutなし：練習中も6つの係を全部使います。' : `練習 ${round} 回目：${resting.length ? resting.join('・') + 'がお休み' : '今回は全員参加'}。参加：${6 - resting.length} / 6。`;
+    byId('status').textContent = current;
+    byId('network-desc').textContent = current;
+    byId('probability').textContent = mode === 'training' ? '休む確率：各係50%' : '休む確率：0%（全員使う）';
+    byId('inference').setAttribute('aria-pressed', String(mode === 'inference'));
+    byId('without').setAttribute('aria-pressed', String(mode === 'without'));
+    byId('next').textContent = mode === 'training' ? '次の練習' : 'Dropoutの練習に戻る';
+    byId('explanation').textContent = mode === 'inference' ? '通常の本番では休ませません。練習してきた全員の働きを使います。' : mode === 'without' ? '毎回すべての係が使えるので、特定の組み合わせに頼った学習もできます。必ず過学習するわけではありません。' : '休む係は毎回選び直します。次の練習では復帰することもあります。';
+  }
+
+  byId('next').addEventListener('click', () => {
+    mode = 'training';
+    round += 1;
+    active = sampleMask();
+    render();
+  });
+  byId('inference').addEventListener('click', () => {
+    mode = 'inference';
+    render();
+  });
+  byId('without').addEventListener('click', () => {
+    mode = 'without';
+    render();
+  });
+  new ResizeObserver(render).observe(network);
+  render();
+})();
+</script>
+</body>
+</html>
