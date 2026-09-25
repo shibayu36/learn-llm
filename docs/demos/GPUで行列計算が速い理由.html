@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>GPUはなぜ行列計算が速いの？</title>
+<style>
+:root{--bg:#f6f5ef;--paper:#fff;--ink:#25332e;--muted:#5a6962;--line:#d9e1d9;--green:#176c53;--soft:#e4f2e9;--orange:#a94d23;--orange-soft:#fcebdd;--mono:ui-monospace,SFMono-Regular,Consolas,monospace;color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.8 -apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif}
+main{max-width:1040px;margin:auto;padding:48px 28px 60px}
+header{padding:10px 0 30px}
+.eyebrow,.step{font-size:13px;font-weight:700;letter-spacing:.1em;color:var(--green)}
+h1{font-size:clamp(32px,5vw,54px);line-height:1.4;letter-spacing:.02em;margin:14px 0 20px}
+h2{font-size:clamp(23px,3vw,30px);line-height:1.5;margin:8px 0 12px}
+h3{font-size:21px;margin:0 0 5px}
+p{margin:8px 0 18px}
+.lead{font-size:19px}
+.lead strong{background:linear-gradient(transparent 65%,#cee6d6 65%)}
+section{padding:30px;background:var(--paper);border:1px solid var(--line);border-radius:20px;margin-bottom:26px}
+.caption{font-size:13px;color:var(--muted)}
+.small{font-size:14px;color:var(--muted)}
+button{font:inherit;border:1px solid #acbeb3;background:var(--paper);color:var(--ink);border-radius:8px;cursor:pointer;padding:9px 16px}
+button:hover{background:var(--soft)}
+button.primary{background:var(--green);border-color:var(--green);color:white}
+button:disabled{opacity:.45;cursor:default}
+:focus-visible{outline:3px solid var(--orange);outline-offset:4px}
+.matrix-equation{display:flex;align-items:center;justify-content:center;gap:22px;margin:28px 0 20px}
+.matrix-group{text-align:center;min-width:0}
+.matrix-title{margin-bottom:9px;font-size:14px;color:var(--muted)}
+.matrix{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:9px;border-left:3px solid var(--line);border-right:3px solid var(--line);border-radius:9px}
+.matrix .cell{display:grid;place-items:center;width:58px;height:58px;background:#f0f3ef;border-radius:7px;font:24px var(--mono);padding:0;border:0}
+.matrix .row-active{background:var(--soft);color:var(--green);box-shadow:inset 0 -3px var(--green)}
+.matrix .column-active{background:var(--orange-soft);color:var(--orange);box-shadow:inset 0 -3px var(--orange)}
+.matrix button[aria-pressed="true"]{background:var(--green);color:white;box-shadow:0 0 0 3px var(--paper),0 0 0 5px var(--green)}
+.operator{font-size:30px;color:var(--muted);padding-top:25px}
+.dot-product{display:flex;justify-content:center;flex-wrap:wrap;align-items:center;gap:10px;background:#f6f8f4;border-radius:12px;padding:20px;margin:12px 0;font:clamp(20px,3vw,30px)/1.5 var(--mono)}
+.row-number{color:var(--green);border-bottom:2px solid var(--green)}
+.column-number{color:var(--orange);border-bottom:2px solid var(--orange)}
+.answer-number{font-weight:700}
+.center{text-align:center}
+.takeaway{font-size:18px;font-weight:600;margin:20px 0 0}
+.controls{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin:20px 0}
+.controls output{font-size:14px;margin-left:auto;font-variant-numeric:tabular-nums}
+.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:26px}
+.device{border-radius:15px;padding:22px;background:#f7f8f5;min-width:0}
+.device.gpu{background:#edf6ef}
+.device-title{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.device-title span{font-size:13px;color:var(--muted)}
+.workers{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;min-height:92px;margin:20px 0 14px;align-content:center}
+.worker{display:grid;place-items:center;height:38px;background:#dde4df;border-radius:7px;font:19px var(--mono);color:#455b4c}
+.cpu .worker{grid-column:span 3;height:84px;font-size:32px}
+.gpu .worker{background:#cfe5d6;color:var(--green)}
+.down-arrow{text-align:center;font-size:27px;color:var(--muted);line-height:1.2;margin:7px 0}
+.job-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:7px;max-width:330px;margin:14px auto}
+.job{aspect-ratio:1;display:grid;place-items:center;border-radius:6px;background:#e2e8e1;color:#617165;font-size:18px;transition:background .2s ease}
+.job.done{background:var(--green);color:white}
+.progress-track{height:7px;background:#dae3d9;border-radius:5px;overflow:hidden;margin-top:20px}
+.progress-fill{height:100%;background:var(--green);width:0;transition:width .2s ease}
+.completion{display:flex;justify-content:space-between;gap:8px;font-size:14px;font-variant-numeric:tabular-nums;margin-top:8px}
+.completion strong{color:var(--green)}
+.round-status{min-height:2em;font-weight:600;margin:16px 0 7px}
+.extra{padding:4px 8px}
+.extra svg{display:block;width:100%;height:150px;color:var(--green);margin:10px 0 16px}
+.extra svg text{font-family:inherit;fill:var(--ink);font-size:16px}
+.extra p{font-size:15px;margin-bottom:0}
+.caution{display:grid;grid-template-columns:100px 1fr;gap:24px;align-items:center;background:#efece1;border:0}
+.caution svg{width:100px;height:100px;color:var(--orange)}
+.caution h2{font-size:22px;margin:0 0 6px}
+.caution p{font-size:15px;margin:0}
+details{font-size:14px;color:var(--muted);padding:8px 4px}
+summary{cursor:pointer}
+details p{margin:12px 0}
+.source{font-size:12px;overflow-wrap:anywhere;margin:8px 0}
+a{color:var(--green);text-underline-offset:3px}
+.noscript{background:var(--orange-soft);padding:14px;border-radius:8px}
+@media(max-width:760px){main{padding:25px 15px 35px}section{padding:22px 18px}.lead{font-size:17px}.matrix-equation{gap:12px}.matrix{gap:4px;padding:6px}.matrix .cell{width:44px;height:48px;font-size:21px}.operator{font-size:24px}.two{gap:16px}.device{padding:16px}.device-title{display:block}.workers{gap:5px}.job-grid{gap:5px}.completion{font-size:13px}}
+@media(max-width:580px){.matrix-equation{display:grid;grid-template-columns:1fr 24px 1fr;gap:10px}.matrix-group{justify-self:center}.result-group{grid-column:2 / 4;justify-self:start}.result-equals{grid-column:1;justify-self:end;padding:0 8px 0 0}.matrix .cell{width:50px;height:50px}.matrix-title{font-size:13px}.two{grid-template-columns:1fr}.device-title{display:flex}.workers{max-width:330px;margin-left:auto;margin-right:auto}.completion{font-size:14px}.controls output{width:100%;margin:3px 0}.dot-product{gap:7px;padding:16px 8px;font-size:21px}.caution{grid-template-columns:1fr;gap:5px}.caution svg{height:70px;width:70px}.extra{padding:2px 0}.extra svg{height:135px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div class="eyebrow">GPUはなぜ行列計算が速いの？</div>
+  <h1>計算を、<br>みんなで分ける。</h1>
+  <p class="lead">行列のかけ算は、小さな「かけて、足す」の集まり。<br>GPUは<strong>たくさんの計算係で、同時に進める</strong>のが得意です。</p>
+</header>
+<noscript><p class="noscript">図を操作するにはJavaScriptを有効にしてください。</p></noscript>
+
+<section aria-labelledby="matrix-heading">
+  <div class="step">01 / お仕事を小さく分ける</div>
+  <h2 id="matrix-heading">答えのマスは、別々に計算できる。</h2>
+  <p>行列は「数字を並べた表」。左の<strong>横1列</strong>と右の<strong>縦1列</strong>で、答えを1マス作ります。</p>
+  <div class="matrix-equation">
+    <div class="matrix-group"><div class="matrix-title">A：横の数字を使う</div><div class="matrix" id="matrix-a" aria-label="行列A"></div></div>
+    <span class="operator" aria-hidden="true">×</span>
+    <div class="matrix-group"><div class="matrix-title">B：縦の数字を使う</div><div class="matrix" id="matrix-b" aria-label="行列B"></div></div>
+    <span class="operator result-equals" aria-hidden="true">=</span>
+    <div class="matrix-group result-group"><div class="matrix-title">答え：マスを押してみよう</div><div class="matrix" id="matrix-c" role="group" aria-label="計算を見たい答えのマス"></div></div>
+  </div>
+  <div id="dot-product" class="dot-product" role="status" aria-live="polite"></div>
+  <p class="caption center" id="selected-cell"></p>
+  <p class="takeaway center">隣の答えを待たなくていい。だから分担できる！</p>
+</section>
+
+<section aria-labelledby="parallel-heading">
+  <div class="step">02 / 同じ作業をいっせいに</div>
+  <h2 id="parallel-heading">GPUには、計算係がたくさんいる。</h2>
+  <p>CPUは複雑な判断や順番のある仕事が得意。<br>GPUは計算用の回路をたくさん並べ、同じ手順をまとめて進めます。</p>
+  <div class="controls">
+    <button type="button" class="primary" id="play">分担の様子を見る</button>
+    <button type="button" id="step">1回進める</button>
+    <button type="button" id="reset">最初に戻す</button>
+    <output id="round-label">進めた回数：0</output>
+  </div>
+  <div class="two">
+    <div class="device cpu">
+      <div class="device-title"><h3>CPU</h3><span>この模型では2係</span></div>
+      <div class="workers" id="cpu-workers" aria-label="計算係2つ"></div>
+      <div class="down-arrow" aria-hidden="true">↓</div>
+      <div class="job-grid" id="cpu-jobs" aria-hidden="true"></div>
+      <div class="progress-track"><div id="cpu-progress" class="progress-fill"></div></div>
+      <div class="completion"><span id="cpu-count">0 / 36マス</span><strong id="cpu-state">計算前</strong></div>
+    </div>
+    <div class="device gpu">
+      <div class="device-title"><h3>GPU</h3><span>この模型では12係</span></div>
+      <div class="workers" id="gpu-workers" aria-label="計算係12個"></div>
+      <div class="down-arrow" aria-hidden="true">↓</div>
+      <div class="job-grid" id="gpu-jobs" aria-hidden="true"></div>
+      <div class="progress-track"><div id="gpu-progress" class="progress-fill"></div></div>
+      <div class="completion"><span id="gpu-count">0 / 36マス</span><strong id="gpu-state">計算前</strong></div>
+    </div>
+  </div>
+  <p id="round-status" class="round-status" role="status" aria-live="polite">どちらも同じ36マスを埋めます。1マス＝1つの答え。</p>
+  <p class="caption">係の数と速さは説明用です。1係が1回に1マスを完成させると仮定し、準備・データ移動の時間は省いています。実際のコア数や速度比ではありません。CPUも並列に計算できます。</p>
+</section>
+
+<section aria-labelledby="extras-heading">
+  <div class="step">03 / たくさん並べる ＋ ふたつの工夫</div>
+  <h2 id="extras-heading">数字を使い回す。まとめて計算する。</h2>
+  <div class="two">
+    <div class="extra">
+      <svg viewBox="0 0 380 150" role="img" aria-labelledby="reuse-title">
+        <title id="reuse-title">一度運んだ数字を近くに置き、複数の計算で使い回す</title>
+        <rect x="112" y="5" width="156" height="45" rx="9" fill="#e4f2e9"/>
+        <text x="190" y="34" text-anchor="middle">1　2　3</text>
+        <path d="M190 52V72M63 72H317M63 72V96M190 72V96M317 72V96" stroke="currentColor" stroke-width="2" fill="none"/>
+        <path d="M57 90L63 97L69 90M184 90L190 97L196 90M311 90L317 97L323 90" stroke="currentColor" stroke-width="2" fill="none"/>
+        <g fill="#e4f2e9"><rect x="18" y="105" width="90" height="40" rx="8"/><rect x="145" y="105" width="90" height="40" rx="8"/><rect x="272" y="105" width="90" height="40" rx="8"/></g>
+        <text x="63" y="132" text-anchor="middle">× ＋</text><text x="190" y="132" text-anchor="middle">× ＋</text><text x="317" y="132" text-anchor="middle">× ＋</text>
+      </svg>
+      <h3>① 近くに置いて使い回す</h3>
+      <p>行列では同じ数字を何度も使います。まとめて運び、近くの速いメモリで共有すると、取りに行く回数を減らせます。</p>
+    </div>
+    <div class="extra">
+      <svg viewBox="0 0 380 150" role="img" aria-labelledby="tensor-title">
+        <title id="tensor-title">小さな行列のまとまりを専用回路に渡して計算する</title>
+        <g fill="#d3e6d8"><rect x="22" y="44" width="25" height="25" rx="3"/><rect x="52" y="44" width="25" height="25" rx="3"/><rect x="22" y="74" width="25" height="25" rx="3"/><rect x="52" y="74" width="25" height="25" rx="3"/></g>
+        <path d="M88 72H117M110 66L118 72L110 78M266 72H296M289 66L297 72L289 78" fill="none" stroke="currentColor" stroke-width="2"/>
+        <rect x="128" y="22" width="128" height="104" rx="15" fill="#e4f2e9" stroke="currentColor" stroke-width="2"/>
+        <text x="192" y="69" text-anchor="middle">行列専用の</text><text x="192" y="94" text-anchor="middle">計算回路</text>
+        <g fill="#176c53"><rect x="309" y="44" width="25" height="25" rx="3"/><rect x="339" y="44" width="25" height="25" rx="3"/><rect x="309" y="74" width="25" height="25" rx="3"/><rect x="339" y="74" width="25" height="25" rx="3"/></g>
+      </svg>
+      <h3>② 専用回路でひとかたまり</h3>
+      <p>対応するGPUには、小さな行列をまとめて「かけて、足す」回路もあります。NVIDIAのTensor Coreなどです。</p>
+    </div>
+  </div>
+</section>
+
+<section class="caution" aria-labelledby="small-heading">
+  <svg viewBox="0 0 100 100" role="img" aria-label="数字を運ぶトラック">
+    <rect x="7" y="28" width="51" height="42" rx="6" fill="none" stroke="currentColor" stroke-width="3"/>
+    <path d="M58 43H77L92 59V70H58M76 44V58H90" fill="none" stroke="currentColor" stroke-width="3"/>
+    <circle cx="25" cy="73" r="9" fill="currentColor"/><circle cx="76" cy="73" r="9" fill="currentColor"/>
+    <text x="32" y="56" text-anchor="middle" fill="currentColor" font-size="19">1 2</text>
+  </svg>
+  <div><h2 id="small-heading">仕事が少ないと、準備のほうが大変。</h2><p>GPUに仕事を頼む準備にも時間がかかります。別のGPUメモリへ数字を運ぶ場合は、その時間も必要です。小さい計算ではCPUのほうが速いこともあります。</p></div>
+</section>
+
+<footer>
+  <details>
+    <summary>模型で省いたこと・参考資料</summary>
+    <p>ここでは行列のかけ算を扱っています。実際は複数の係がマスのまとまりを協力して計算します。1マスの中にも足し合わせる手順があります。「1マスに1コアがつきっきり」という対応ではありません。</p>
+    <p>CPUにも複数のコアや複数の数値を同時に扱う命令があります。GPUは大量の同じ計算をこなすことに、より多くの回路を使う設計です。メモリから数字を運ぶ速さも性能を左右します。</p>
+    <p>速さは行列の大きさ・形・数値の精度・GPUの種類・計算方法で変わります。Tensor Coreが使える条件も機種や数値形式によって異なります。</p>
+    <p class="source">CPUとGPUの設計：<a href="https://docs.nvidia.com/cuda/archive/12.5.1/cuda-c-programming-guide/index.html#the-benefits-of-using-gpus">https://docs.nvidia.com/cuda/archive/12.5.1/cuda-c-programming-guide/index.html#the-benefits-of-using-gpus</a></p>
+    <p class="source">並列実行・メモリ・Tensor Core：<a href="https://docs.nvidia.com/deeplearning/performance/dl-performance-gpu-background/index.html">https://docs.nvidia.com/deeplearning/performance/dl-performance-gpu-background/index.html</a></p>
+    <p class="source">行列の分担・データの再利用：<a href="https://docs.nvidia.com/deeplearning/performance/dl-performance-matrix-multiplication/index.html">https://docs.nvidia.com/deeplearning/performance/dl-performance-matrix-multiplication/index.html</a></p>
+  </details>
+</footer>
+</main>
+<script>
+(() => {
+  'use strict';
+  const a = [[1, 2, 3], [4, 1, 2], [2, 3, 1]];
+  const b = [[2, 1, 3], [1, 3, 2], [3, 2, 1]];
+  const byId = id => document.getElementById(id);
+  const dot = (row, column) => a[row].reduce((sum, value, k) => sum + value * b[k][column], 0);
+
+  for (let row = 0; row < 3; row++) {
+    for (let column = 0; column < 3; column++) {
+      for (const [id, values] of [['matrix-a', a], ['matrix-b', b]]) {
+        const cell = document.createElement('span');
+        cell.className = 'cell';
+        cell.textContent = values[row][column];
+        byId(id).append(cell);
+      }
+      const cell = document.createElement('button');
+      cell.type = 'button';
+      cell.className = 'cell';
+      cell.textContent = dot(row, column);
+      cell.setAttribute('aria-label', `${row + 1}行${column + 1}列の答え ${dot(row, column)} の計算を見る`);
+      cell.addEventListener('click', () => selectCell(row, column));
+      byId('matrix-c').append(cell);
+    }
+  }
+
+  function selectCell(row, column) {
+    for (let index = 0; index < 9; index++) {
+      byId('matrix-a').children[index].classList.toggle('row-active', Math.floor(index / 3) === row);
+      byId('matrix-b').children[index].classList.toggle('column-active', index % 3 === column);
+      byId('matrix-c').children[index].setAttribute('aria-pressed', String(index === row * 3 + column));
+    }
+    byId('dot-product').innerHTML = a[row].map((value, k) =>
+      `<span><span class="row-number">${value}</span> × <span class="column-number">${b[k][column]}</span></span>`
+    ).join('<span>＋</span>') + `<span>＝ <span class="answer-number">${dot(row, column)}</span></span>`;
+    byId('selected-cell').textContent = `Aの${row + 1}行目 × Bの${column + 1}列目 → 答えの${row + 1}行${column + 1}列`;
+  }
+
+  const total = 36;
+  const workers = {cpu: 2, gpu: 12};
+  const lastRound = Math.ceil(total / workers.cpu);
+  let round = 0;
+  let timer = null;
+
+  for (const [device, count] of Object.entries(workers)) {
+    for (let index = 0; index < count; index++) {
+      const worker = document.createElement('span');
+      worker.className = 'worker';
+      worker.textContent = '× +';
+      worker.setAttribute('aria-hidden', 'true');
+      byId(`${device}-workers`).append(worker);
+    }
+    for (let index = 0; index < total; index++) {
+      const job = document.createElement('span');
+      job.className = 'job';
+      job.textContent = '·';
+      byId(`${device}-jobs`).append(job);
+    }
+  }
+
+  function renderRound() {
+    for (const [device, count] of Object.entries(workers)) {
+      const done = Math.min(total, round * count);
+      Array.from(byId(`${device}-jobs`).children).forEach((job, index) => {
+        job.classList.toggle('done', index < done);
+        job.textContent = index < done ? '✓' : '·';
+      });
+      byId(`${device}-count`).textContent = `${done} / ${total}マス`;
+      byId(`${device}-progress`).style.width = `${done / total * 100}%`;
+      byId(`${device}-state`).textContent = done === total ? `${Math.ceil(total / count)}回で完了` : round === 0 ? '計算前' : '計算中';
+    }
+    byId('round-label').textContent = `進めた回数：${round}`;
+    byId('step').disabled = round === lastRound;
+    byId('round-status').textContent = round === 0
+      ? 'どちらも同じ36マスを埋めます。1マス＝1つの答え。'
+      : round < 3 ? '1回に、CPUは2マス。GPUは12マス。'
+      : round < lastRound ? 'GPUは3回で完了！ CPUも同じ答えに向かって計算中。'
+      : 'どちらも完了。分担が多いと、同じ仕事を少ない回数で終えられます。';
+    byId('play').textContent = timer !== null ? '一時停止' : round === lastRound ? 'もう一度見る' : round === 0 ? '分担の様子を見る' : '続きを見る';
+  }
+
+  function stop() {
+    clearInterval(timer);
+    timer = null;
+  }
+
+  function advance() {
+    round = Math.min(lastRound, round + 1);
+    if (round === lastRound) stop();
+    renderRound();
+  }
+
+  byId('play').addEventListener('click', () => {
+    if (timer !== null) {
+      stop();
+    } else {
+      if (round === lastRound) round = 0;
+      timer = setInterval(advance, 550);
+    }
+    renderRound();
+  });
+  byId('step').addEventListener('click', () => { stop(); advance(); });
+  byId('reset').addEventListener('click', () => { stop(); round = 0; renderRound(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && timer !== null) { stop(); renderRound(); }
+  });
+  selectCell(0, 0);
+  renderRound();
+})();
+</script>
+</body>
+</html>

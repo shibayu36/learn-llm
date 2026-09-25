@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>なぜAttentionは√d_kで割るのか</title>
+<style>
+:root{color-scheme:light;--bg:#f5f5f2;--paper:#fff;--ink:#22303c;--muted:#5d6b76;--line:#dce2e6;--blue:#245eb6;--blue-soft:#eaf1fc;--orange:#b65b24;--orange-soft:#fbefe5;--mono:ui-monospace,SFMono-Regular,Consolas,monospace}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.85 -apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif}main{max-width:1140px;margin:auto;padding:42px 28px 64px}a{color:var(--blue);text-underline-offset:4px}header{max-width:850px;margin-bottom:28px}h1{font-size:clamp(27px,4vw,40px);line-height:1.5;margin:12px 0 18px;letter-spacing:.02em}h2{font-size:23px;line-height:1.6;margin:0 0 12px}h3{font-size:18px;margin:0 0 8px}p{margin:10px 0 17px}.eyebrow,.step{font:12px/1.5 var(--mono);letter-spacing:.1em;color:var(--muted)}.lead{font-size:18px}.lead strong{background:linear-gradient(transparent 65%,#dce9fc 65%)}section{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:28px;margin:24px 0;scroll-margin-top:20px}.step{display:block;margin-bottom:10px;color:var(--blue)}.controls{display:flex;flex-wrap:wrap;align-items:center;gap:9px}.controls label{font-weight:600;margin-right:5px}button{font:inherit;font-size:14px;border:1px solid #b9c5ce;border-radius:7px;background:var(--paper);padding:9px 14px;color:var(--ink);cursor:pointer}button:hover{background:var(--blue-soft)}button[aria-pressed="true"],button.primary{background:var(--blue);border-color:var(--blue);color:#fff}button:disabled{cursor:default;opacity:.5}:focus-visible{outline:3px solid var(--orange);outline-offset:3px}.dimension-control{background:#edf1f5;border-radius:10px;padding:18px 20px}.dimension-control p{font-size:14px;color:var(--muted);margin:8px 0 0}.n-value{font-variant-numeric:tabular-nums}.two{display:grid;grid-template-columns:1fr 1fr;gap:24px}.plot{min-width:0}.plot svg{display:block;width:100%;overflow:visible}.plot text{font-family:inherit;font-size:12px;fill:var(--muted)}.plot .axis-title{font-size:13px;fill:var(--ink)}.plot .grid{stroke:#e6ebef;stroke-width:1}.plot .axis{stroke:#a2aeb8;stroke-width:1}.plot .zero{stroke:#8797a6;stroke-width:1.5}.plot .band{fill:var(--blue);opacity:.08}.plot .point{fill:var(--blue);opacity:.19}.plot .selected{fill:var(--orange);stroke:var(--paper);stroke-width:1.5;opacity:1}.walk-line{fill:none;stroke:var(--blue);stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}.walk-readout{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px 24px;font-size:15px;padding:10px 0}.walk-readout strong{font:600 25px/1.5 var(--mono)}.term{font-family:var(--mono);font-size:14px}.equation{background:#f0f3f6;border-radius:8px;padding:12px 15px;font-family:var(--mono);font-size:15px;overflow-wrap:anywhere}.cancellation{display:flex;height:32px;border-radius:5px;overflow:hidden;background:#f1f3f5;margin:10px 0}.cancellation .paired{background:#dce3e9}.cancellation .remaining{background:var(--blue)}.cancellation .remaining.negative{background:var(--orange)}.caption,.small{font-size:13px;color:var(--muted)}.caption{margin:7px 0 14px}.finding{padding:15px 18px;border-left:3px solid var(--blue);background:var(--blue-soft);margin:20px 0 0}.finding p{margin:0}.stat-row{display:flex;flex-wrap:wrap;gap:12px 22px;margin:6px 0 12px;font-size:14px}.stat-row strong{font-size:22px;font-variant-numeric:tabular-nums;color:var(--ink);padding-left:5px}.stat-row small{font-size:12px;color:var(--muted);padding-left:7px}.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin:12px 0}.swatch{display:inline-block;width:10px;height:10px;background:var(--blue);border-radius:50%;margin-right:5px}.swatch.orange{background:var(--orange)}.band-swatch{display:inline-block;width:19px;height:10px;background:#e6edf8;margin-right:5px}.comparison{width:100%;border-collapse:collapse;margin-top:12px;font-size:14px}.comparison th,.comparison td{padding:9px 12px;text-align:right;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}.comparison th:first-child,.comparison td:first-child{text-align:left}.comparison tr.is-active{background:var(--blue-soft)}.table-scroll{overflow-x:auto}.prob-row{display:grid;grid-template-columns:76px 1fr 68px;gap:9px;align-items:center;margin:13px 0;font-size:14px}.candidate small{display:block;font-size:12px;color:var(--muted);line-height:1.5}.prob-track{height:20px;background:#edf1f5;border-radius:4px;overflow:hidden}.prob-fill{height:100%;background:var(--blue);transition:width .45s ease}.prob-number{text-align:right;font-variant-numeric:tabular-nums}.formula{font:15px/1.9 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}.scores{font:14px/1.8 var(--mono);min-height:2em;overflow-wrap:anywhere}details{margin-top:20px;padding-top:15px;border-top:1px solid var(--line)}summary{cursor:pointer;font-weight:600}details p{font-size:14px}.source{font-size:13px;color:var(--muted);overflow-wrap:anywhere}footer{max-width:900px}.muted{color:var(--muted)}.noscript{padding:20px;border:1px solid var(--orange);background:var(--orange-soft)}
+@media(max-width:760px){main{padding:26px 15px 45px}section{padding:21px 17px}.two{grid-template-columns:1fr;gap:23px}h2{font-size:21px}.dimension-control{padding:15px}.controls{gap:7px}button{padding:8px 11px}.lead{font-size:16px}.comparison th,.comparison td{padding:8px}.walk-readout{gap:5px 17px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<main>
+<header>
+ <div class="eyebrow">ATTENTION · SCOREのばらつき</div>
+ <h1>なぜ √d_k で割ると、<br>scoreのばらつきが揃うのか。</h1>
+ <p class="lead">正負の値は打ち消し合います。それでも、<strong>たくさん足した合計は、0からのズレが大きくなりやすい</strong>。1回の足し算と、多数の足し算を分けて見てみましょう。</p>
+</header>
+<noscript><p class="noscript">このページのデモにはJavaScriptが必要です。ブラウザでJavaScriptを有効にして開いてください。</p></noscript>
+<div class="dimension-control">
+ <div class="controls" role="group" aria-label="QとKの成分数">
+  <label>Q・Kの成分数 d_k</label>
+  <button type="button" data-n="4" aria-pressed="false">4</button>
+  <button type="button" data-n="16" aria-pressed="true">16</button>
+  <button type="button" data-n="64" aria-pressed="false">64</button>
+  <button type="button" data-n="256" aria-pressed="false">256</button>
+  <button type="button" id="resample">別の乱数で試す</button>
+ </div>
+ <p>変えるのは1本のベクトルの成分数です。比較する相手の数は固定し、同じ乱数列の先頭から使います。</p>
+</div>
+
+<section id="walk-section" aria-labelledby="walk-heading">
+ <span class="step">01 · 1つの内積を見る</span>
+ <h2 id="walk-heading">＋1なら上へ、−1なら下へ。合計を追う。</h2>
+ <p>内積は <code>q₁k₁ + q₂k₂ + …</code> という足し算です。このデモではQ・Kの各成分をランダムな＋1か−1にします。すると、1項の積も＋1か−1になり、折れ線の一歩として描けます。</p>
+ <div class="controls">
+  <button type="button" id="walk-play" class="primary">足し算を最初から再生</button>
+  <button type="button" id="walk-step">1項ずつ足す</button>
+  <span id="term-label" class="term"></span>
+ </div>
+ <div class="walk-readout">
+  <span>足した項 <strong id="walk-count">16</strong> / <span class="n-value">16</span></span>
+  <span>ここまでの合計 <strong id="walk-total">0</strong></span>
+ </div>
+ <div id="walk-plot" class="plot"></div>
+ <div class="cancellation" aria-hidden="true"><div id="paired-bar" class="paired"></div><div id="remaining-bar" class="remaining"></div></div>
+ <p id="cancellation-label" class="caption"></p>
+ <div class="finding"><p>1本だけを見ると、成分を足して合計が0へ戻ることもあります。<strong>「項が増えるたびに、必ず合計が大きくなる」という話ではありません。</strong></p></div>
+</section>
+
+<section id="distribution-section" aria-labelledby="distribution-heading">
+ <span class="step">02 · 多数の内積を比べる</span>
+ <h2 id="distribution-heading">中心は0付近のまま。散らばる幅が広がる。</h2>
+ <p>1本のQと512本のKで内積を計算します。点1つが1つの内積です。成分数を<strong>16 → 64 → 256</strong>と増やし、左の点群が横へ広がる様子を見てください。右は同じ値を √d_k で割ったものです。</p>
+ <div class="controls" role="group" aria-label="散らばりを比較する成分数">
+  <span>成分数</span>
+  <button type="button" data-n="4" aria-pressed="false">4</button>
+  <button type="button" data-n="16" aria-pressed="true">16</button>
+  <button type="button" data-n="64" aria-pressed="false">64</button>
+  <button type="button" data-n="256" aria-pressed="false">256</button>
+  <button type="button" id="dimensions-play">成分数を順に増やす</button>
+ </div>
+ <div class="legend"><span><i class="swatch"></i>512個の内積</span><span><i class="swatch orange"></i>上の足し算を最後まで進めた結果</span><span><i class="band-swatch"></i>理論上の標準偏差1個ぶん</span></div>
+ <div class="two">
+  <div>
+   <h3>割る前の内積</h3>
+   <div class="stat-row"><span>ばらつき <strong id="raw-sd"></strong><small>理論値 <span id="raw-theory"></span></small></span><span>平均 <strong id="raw-mean"></strong></span></div>
+   <div id="raw-plot" class="plot"></div>
+  </div>
+  <div>
+   <h3>√<span class="n-value">16</span> = <span id="divisor">4</span> で割った後</h3>
+   <div class="stat-row"><span>ばらつき <strong id="scaled-sd"></strong><small>理論値 1</small></span><span>平均 <strong id="scaled-mean"></strong></span></div>
+   <div id="scaled-plot" class="plot"></div>
+  </div>
+ </div>
+ <p class="caption">横位置が値を表します。縦の位置は重なりを減らすために散らしています。左右の横軸の範囲は異なりますが、成分数を変えても各図の目盛りは固定です。「ばらつき」は標準偏差で、平均からどれくらい離れるかの大きさを表します。</p>
+ <div class="table-scroll"><table class="comparison">
+  <thead><tr><th>成分数 d_k</th><th>割る前のばらつき</th><th>割る値 √d_k</th><th>割った後</th></tr></thead>
+  <tbody id="scaling-table"></tbody>
+ </table></div>
+ <div class="finding"><p id="scaling-takeaway" role="status" aria-live="polite"></p></div>
+ <details>
+  <summary>なぜ「平方根」になるのか、式でも確かめる</summary>
+  <p>1項の積を a、別の項の積を b とします。それぞれ独立に＋1か−1なので、二乗すると必ず1です。一方、abは正負が同じ確率で現れ、平均は0になります。</p>
+  <div class="formula">(a + b)² = a² + b² + 2ab
+平均を取ると 1 + 1 + 0 = 2</div>
+  <p>d_k項でも同じです。別の項どうしの積は平均で0になり、各項の二乗だけが残ります。</p>
+  <div class="formula">合計の二乗の平均 = d_k
+合計の大きさの目安 = √d_k
+
+√d_k で割った合計の二乗の平均
+  = d_k / (√d_k)² = 1</div>
+  <p>ばらつきそのものが√d_k倍になるので、√d_kで割ると揃います。d_kで割ると、成分数が大きいほど逆に小さくなりすぎます。</p>
+ </details>
+</section>
+
+<section id="softmax-section" aria-labelledby="softmax-heading">
+ <span class="step">03 · Attentionの割合につなげる</span>
+ <h2 id="softmax-heading">scoreの差が大きいと、softmaxが一か所に偏る。</h2>
+ <p>512本のKのうち4本を選んで比較します。参照先A〜Dは同じまま、成分数だけを変えます。各棒は、この4つに対するsoftmax後の割合です。</p>
+ <div class="controls" role="group" aria-label="softmaxを比較する成分数">
+  <span>成分数</span>
+  <button type="button" data-n="4" aria-pressed="false">4</button>
+  <button type="button" data-n="16" aria-pressed="true">16</button>
+  <button type="button" data-n="64" aria-pressed="false">64</button>
+  <button type="button" data-n="256" aria-pressed="false">256</button>
+ </div>
+ <div class="two" style="margin-top:18px">
+  <div><h3>割らずにsoftmax</h3><div id="raw-scores" class="scores"></div><div id="raw-probabilities"></div></div>
+  <div><h3>√d_k で割ってからsoftmax</h3><div id="scaled-scores" class="scores"></div><div id="scaled-probabilities"></div></div>
+ </div>
+ <p id="gap-label" class="equation"></p>
+ <p class="caption">割ることでscoreの大小の順序は変わりませんが、差の大きさは変わります。個々の乱数では同点になったり、偏りが小さくなったりする場合もあります。</p>
+ <div class="finding"><p><strong>√d_kで割る目的は、成分数の増加だけでscoreの差が広がりすぎるのを抑えること。</strong>入力に応じて参照先を選ぶ余地を残します。</p></div>
+</section>
+<footer>
+ <p class="source">このデモは、Q・Kの各成分を独立な±1として作ったシミュレーションです。学習済みモデルの測定値ではありません。各成分が独立で平均0・分散1という仮定では、内積の標準偏差は√d_kになります。実際の学習では分布や相関も変わるため、√d_kは成分数によるスケールの変化を補正する目安です。</p>
+ <p class="source">参考：Attention Is All You Need §3.2.1: <a href="https://arxiv.org/abs/1706.03762">https://arxiv.org/abs/1706.03762</a></p>
+</footer>
+</main>
+<script>
+(() => {
+ 'use strict';
+ const sizes = [4, 16, 64, 256];
+ const count = 512;
+ const maximum = 256;
+ const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+ const get = id => document.getElementById(id);
+ const svgNS = 'http://www.w3.org/2000/svg';
+ let dimension = 16;
+ let seed = 20260925;
+ let data;
+ let walkStep = dimension;
+ let walkFrame = 0;
+ let dimensionTimer = 0;
+
+ function rng(initial) {
+  let state = initial >>> 0;
+  return () => {
+   state ^= state << 13; state ^= state >>> 17; state ^= state << 5;
+   return (state >>> 0) / 4294967296;
+  };
+ }
+
+ function makeData() {
+  const random = rng(seed);
+  const query = Int8Array.from({length: maximum}, () => random() < .5 ? -1 : 1);
+  const keys = [];
+  const sums = [];
+  const jitter = [];
+  let rawMax = 1;
+  let scaledMax = 1;
+  for (let sample = 0; sample < count; sample++) {
+   const key = new Int8Array(maximum);
+   const prefix = new Int16Array(maximum + 1);
+   for (let i = 0; i < maximum; i++) {
+    key[i] = random() < .5 ? -1 : 1;
+    prefix[i + 1] = prefix[i] + query[i] * key[i];
+   }
+   keys.push(key); sums.push(prefix); jitter.push(random());
+   for (const n of sizes) {
+    rawMax = Math.max(rawMax, Math.abs(prefix[n]));
+    scaledMax = Math.max(scaledMax, Math.abs(prefix[n] / Math.sqrt(n)));
+   }
+  }
+  return {query, keys, sums, jitter, rawLimit: Math.ceil((rawMax + 2) / 8) * 8, scaledLimit: Math.ceil(scaledMax + .25)};
+ }
+
+ function node(tag, attrs = {}, text) {
+  const element = document.createElementNS(svgNS, tag);
+  for (const [key, value] of Object.entries(attrs)) element.setAttribute(key, value);
+  if (text !== undefined) element.textContent = text;
+  return element;
+ }
+
+ function format(value, digits = 2) {
+  const rounded = Math.abs(value) < .5 * Math.pow(10, -digits) ? 0 : value;
+  return rounded.toFixed(digits);
+ }
+
+ function stats(values) {
+  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+  const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
+  return {mean, sd: Math.sqrt(variance)};
+ }
+
+ function drawWalk() {
+  const container = get('walk-plot');
+  const width = Math.max(260, container.clientWidth);
+  const height = 240;
+  const left = 50, right = width - 20, top = 22, bottom = height - 48;
+  const walkMax = Math.max(2, ...Array.from(data.sums[0].slice(0, dimension + 1), value => Math.abs(value)));
+  const walkLimit = Math.ceil((walkMax + 1) / 4) * 4;
+  const x = value => left + value / dimension * (right - left);
+  const y = value => bottom - (value + walkLimit) / (2 * walkLimit) * (bottom - top);
+  const svg = node('svg', {viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': `${walkStep}項まで足した合計は${data.sums[0][walkStep]}。青い線が足し算の途中経過。`});
+  for (const value of [-walkLimit, 0, walkLimit]) {
+   svg.append(node('line', {x1: left, x2: right, y1: y(value), y2: y(value), class: value === 0 ? 'zero' : 'grid'}));
+   svg.append(node('text', {x: left - 9, y: y(value) + 4, 'text-anchor': 'end'}, value));
+  }
+  const ticks = width < 500 ? [0, dimension / 2, dimension] : [0, dimension / 4, dimension / 2, dimension * .75, dimension];
+  for (const value of ticks) svg.append(node('text', {x: x(value), y: bottom + 22, 'text-anchor': value === 0 ? 'start' : value === dimension ? 'end' : 'middle'}, value));
+  svg.append(node('text', {x: left, y: 14, class: 'axis-title'}, '合計（内積）'));
+  svg.append(node('text', {x: (left + right) / 2, y: height - 5, 'text-anchor': 'middle', class: 'axis-title'}, '足した項の数'));
+  let path = '';
+  for (let i = 0; i <= walkStep; i++) path += `${i ? 'L' : 'M'}${x(i)},${y(data.sums[0][i])} `;
+  svg.append(node('path', {d: path, class: 'walk-line'}));
+  svg.append(node('circle', {cx: x(walkStep), cy: y(data.sums[0][walkStep]), r: 5, class: 'selected'}));
+  container.replaceChildren(svg);
+  const total = data.sums[0][walkStep];
+  const positives = (walkStep + total) / 2;
+  const negatives = walkStep - positives;
+  const paired = Math.min(positives, negatives) * 2;
+  get('walk-count').textContent = walkStep;
+  get('walk-total').textContent = total > 0 ? `+${total}` : total;
+  get('paired-bar').style.width = `${walkStep ? paired / walkStep * 100 : 0}%`;
+  get('remaining-bar').style.width = `${walkStep ? Math.abs(total) / walkStep * 100 : 0}%`;
+  get('remaining-bar').classList.toggle('negative', total < 0);
+  get('cancellation-label').textContent = `＋1が${positives}個、−1が${negatives}個。${paired}項ぶんが打ち消し合い、合計${total > 0 ? '+' : ''}${total}が残ります。灰色が打ち消し合った分です。`;
+  if (walkStep) {
+   const index = walkStep - 1;
+   const sign = value => value > 0 ? '+1' : '−1';
+   get('term-label').textContent = `項${walkStep}：${sign(data.query[index])} × ${sign(data.keys[0][index])} = ${sign(data.query[index] * data.keys[0][index])}`;
+  } else get('term-label').textContent = 'まだ何も足していません';
+ }
+
+ function drawDistribution(id, scaled, previous) {
+  const container = get(id);
+  const width = Math.max(260, container.clientWidth), height = 215;
+  const left = 24, right = width - 24, top = 19, bottom = height - 60;
+  const limit = scaled ? data.scaledLimit : data.rawLimit;
+  const divisor = scaled ? Math.sqrt(dimension) : 1;
+  const x = value => left + (value + limit) / (2 * limit) * (right - left);
+  const values = data.sums.map(prefix => prefix[dimension] / divisor);
+  const summary = stats(values);
+  const svg = node('svg', {viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': `${scaled ? '割った後' : '割る前'}の512個の値。平均${format(summary.mean)}、標準偏差${format(summary.sd)}。`});
+  const spread = scaled ? 1 : Math.sqrt(dimension);
+  svg.append(node('rect', {x: x(-spread), y: top, width: x(spread) - x(-spread), height: bottom - top, class: 'band'}));
+  for (const value of [-limit, -limit / 2, 0, limit / 2, limit]) {
+   svg.append(node('line', {x1: x(value), x2: x(value), y1: top, y2: bottom, class: value === 0 ? 'zero' : 'grid'}));
+   svg.append(node('text', {x: x(value), y: bottom + 23, 'text-anchor': value === -limit ? 'start' : value === limit ? 'end' : 'middle'}, Number.isInteger(value) ? value : value.toFixed(1)));
+  }
+  svg.append(node('line', {x1: left, x2: right, y1: bottom, y2: bottom, class: 'axis'}));
+  const selected = [];
+  for (let i = 0; i < count; i++) {
+   const dot = node('circle', {cx: x(values[i]), cy: top + 10 + data.jitter[i] * (bottom - top - 20), r: i ? 2.8 : 5, class: i ? 'point' : 'selected'});
+   if (previous !== undefined && !reducedMotion) {
+    const old = data.sums[i][previous] / (scaled ? Math.sqrt(previous) : 1);
+    dot.append(node('animate', {attributeName: 'cx', from: x(old), to: x(values[i]), dur: '.45s'}));
+   }
+   if (i) svg.append(dot); else selected.push(dot);
+  }
+  svg.append(...selected);
+  svg.append(node('text', {x: width / 2, y: height - 15, 'text-anchor': 'middle', class: 'axis-title'}, scaled ? '内積 ÷ √d_k' : '内積（割る前のscore）'));
+  container.replaceChildren(svg);
+  const prefix = scaled ? 'scaled' : 'raw';
+  get(`${prefix}-sd`).textContent = format(summary.sd);
+  get(`${prefix}-mean`).textContent = format(summary.mean);
+  get(`${prefix}-sd`).dataset.value = summary.sd;
+ }
+
+ function softmax(values) {
+  const maximumValue = Math.max(...values);
+  const exponentials = values.map(value => Math.exp(value - maximumValue));
+  const sum = exponentials.reduce((total, value) => total + value, 0);
+  return exponentials.map(value => value / sum);
+ }
+
+ function drawProbabilities(id, scores) {
+  const container = get(id);
+  const probabilities = softmax(scores);
+  if (!container.children.length) {
+   for (let i = 0; i < 4; i++) {
+    const row = document.createElement('div');
+    row.className = 'prob-row';
+    row.innerHTML = `<span class="candidate">参照先${String.fromCharCode(65 + i)}<small></small></span><div class="prob-track"><div class="prob-fill"></div></div><span class="prob-number"></span>`;
+    container.append(row);
+   }
+  }
+  for (let i = 0; i < 4; i++) {
+   const row = container.children[i];
+   row.querySelector('small').textContent = `score ${format(scores[i], scores.every(Number.isInteger) ? 0 : 2)}`;
+   row.querySelector('.prob-fill').style.width = `${probabilities[i] * 100}%`;
+   row.querySelector('.prob-number').textContent = `${format(probabilities[i] * 100, 1)}%`;
+   row.dataset.probability = probabilities[i];
+   row.dataset.score = scores[i];
+  }
+ }
+
+ function render(previous) {
+  document.querySelectorAll('[data-n]').forEach(button => button.setAttribute('aria-pressed', Number(button.dataset.n) === dimension));
+  document.querySelectorAll('.n-value').forEach(label => label.textContent = dimension);
+  get('divisor').textContent = Math.sqrt(dimension);
+  get('raw-theory').textContent = Math.sqrt(dimension);
+  drawWalk();
+  drawDistribution('raw-plot', false, previous);
+  drawDistribution('scaled-plot', true, previous);
+  get('scaling-table').innerHTML = sizes.map(n => `<tr class="${n === dimension ? 'is-active' : ''}"><td>${n}</td><td>約 ${Math.sqrt(n)}</td><td>÷ ${Math.sqrt(n)}</td><td>約 1</td></tr>`).join('');
+  get('scaling-takeaway').innerHTML = `成分数が<strong>4倍</strong>になると、割る前のばらつきは<strong>約2倍</strong>。割る値も2倍になるので、割った後のばらつきは約1に揃います。いまは <strong>√${dimension} = ${Math.sqrt(dimension)}</strong> で割っています。`;
+  const raw = data.sums.slice(0, 4).map(prefix => prefix[dimension]);
+  const scaled = raw.map(value => value / Math.sqrt(dimension));
+  get('raw-scores').textContent = `[${raw.join(', ')}]`;
+  get('scaled-scores').textContent = `[${scaled.map(value => format(value)).join(', ')}]`;
+  drawProbabilities('raw-probabilities', raw);
+  drawProbabilities('scaled-probabilities', scaled);
+  const gap = Math.max(...raw) - Math.min(...raw);
+  get('gap-label').textContent = `最大と最小の差：${gap} → ${gap} ÷ ${Math.sqrt(dimension)} = ${format(gap / Math.sqrt(dimension))}`;
+ }
+
+ function stopWalk() {
+  cancelAnimationFrame(walkFrame);
+  walkFrame = 0;
+  get('walk-play').textContent = '足し算を最初から再生';
+ }
+
+ function stopDimensions() {
+  clearInterval(dimensionTimer);
+  dimensionTimer = 0;
+  get('dimensions-play').textContent = '成分数を順に増やす';
+ }
+
+ function choose(n) {
+  const previous = dimension;
+  stopWalk(); dimension = n; walkStep = n;
+  render(previous);
+ }
+
+ document.querySelectorAll('[data-n]').forEach(button => button.addEventListener('click', () => {
+  stopDimensions(); choose(Number(button.dataset.n));
+ }));
+ get('resample').addEventListener('click', () => {
+  stopDimensions(); stopWalk();
+  seed = (seed + 1009) >>> 0;
+  data = makeData(); walkStep = dimension; render();
+ });
+ get('walk-play').addEventListener('click', () => {
+  stopDimensions();
+  if (walkFrame) { stopWalk(); return; }
+  if (reducedMotion) { walkStep = dimension; drawWalk(); return; }
+  walkStep = 0; drawWalk();
+  get('walk-play').textContent = '一時停止';
+  const start = performance.now();
+  const duration = Math.max(1500, Math.min(5000, dimension * 120));
+  function frame(now) {
+   walkStep = Math.min(dimension, Math.floor((now - start) / duration * dimension));
+   drawWalk();
+   if (walkStep < dimension) walkFrame = requestAnimationFrame(frame);
+   else { stopWalk(); }
+  }
+  walkFrame = requestAnimationFrame(frame);
+ });
+ get('walk-step').addEventListener('click', () => {
+  stopDimensions(); stopWalk();
+  walkStep = walkStep >= dimension ? 1 : walkStep + 1;
+  drawWalk();
+ });
+ get('dimensions-play').addEventListener('click', () => {
+  if (dimensionTimer) { stopDimensions(); return; }
+  let index = 0;
+  choose(sizes[index]);
+  get('dimensions-play').textContent = '自動切り替えを止める';
+  dimensionTimer = setInterval(() => {
+   index++;
+   if (index >= sizes.length) { stopDimensions(); return; }
+   choose(sizes[index]);
+  }, 1800);
+ });
+ data = makeData();
+ render();
+ let resizeFrame = 0;
+ new ResizeObserver(() => {
+  cancelAnimationFrame(resizeFrame);
+  resizeFrame = requestAnimationFrame(() => { drawWalk(); drawDistribution('raw-plot', false); drawDistribution('scaled-plot', true); });
+ }).observe(get('walk-plot'));
+ document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { stopWalk(); stopDimensions(); }
+ });
+})();
+</script>
+</body>
+</html>
