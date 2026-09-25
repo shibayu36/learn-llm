@@ -80,14 +80,21 @@ llms-from-scratch/
   dataset.py       GPTDataset + DataLoader（Stage 1）
   generate.py      generate_text_simple → generate（Stage 2〜3）
   train.py         損失・評価・訓練ループ・保存（Stage 2〜3）
-  main.py          1回の学習と学習前後の生成を実行する入口
+  main.py          入口。`train` と `generate` のサブコマンドを持つ
   experiments/     層数・ヘッド数の比較スクリプト（Stage 4〜）
-  runs/            実行結果（metrics.json、loss.png、model.pt）
+  runs/            実行結果（model.pt、config.json、vocab.json、metrics.json、loss.png）
   data/            固定した日本語データ
   prepare_data.py  データ取得
 ```
 
 本は章ごとにNotebookで進めるが、ここでは部品をモジュールに分け、`main.py` 1本を実行入口にする。各節の動作確認は `main.py` に書き、次の段階へ進むときに不要な確認コードは消す。
+
+Stage 3以降の `main.py` は次の2つのサブコマンドを持つ。
+
+- `uv run main.py train`：学習して `runs/<run_name>/` にモデル・Config・語彙・評価値を保存する
+- `uv run main.py generate "日本の首都は"`：保存済みのモデルと語彙を読み込み、1つのpromptの続きを生成する。学習をやり直さずに何度でも試せる。オプションでtemperatureとtop-kを指定する
+
+promptは1回の実行につき1つにする。複数試すときはシェルで繰り返し呼ぶ。
 
 ## 段階
 
@@ -110,7 +117,8 @@ llms-from-scratch/
 
 - 訓練ループ（AdamW）、一定stepごとのtrain/validation loss、学習中の生成サンプル表示
 - temperatureとtop-kによるsampling
-- 学習後のモデル・Config・語彙の保存と読み込み
+- 学習後のモデル・Config・語彙の保存と読み込み。語彙はモデルと組で保存し、読み込み時はtrainを読み直さず保存した語彙を使う
+- `main.py` を `train` / `generate` のサブコマンドに分ける
 - 基準の記録：パラメータ数、loss曲線、学習前後の生成、所要時間
 - 観察：学習前のでたらめな文字列から、日本語の語句や文末のつながりが現れるか。話題を保った文章になっているか
 
