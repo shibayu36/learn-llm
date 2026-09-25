@@ -1,3 +1,4 @@
+import math
 import torch
 from torch import nn
 
@@ -6,15 +7,34 @@ from tiny_gpt.config import Config
 def scaled_attention(
     q: torch.Tensor, k: torch.Tensor, v: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    # 出力とAttention weightの組を返すので、入力をそのまま返す形が作れない。
-    # 1.9でBlockの中身を書くまで呼ばれない。1.5で実装する。
-    raise NotImplementedError("1.5で実装する")
-
+    key_size  = q.shape[-1]
+    # 各位置のQueryと各位置のKeyの内積を一度に計算する。scores[b, i, j] は
+    # 「位置iが探しているもの」と「位置jが持っているもの」の噛み合い度合い。
+    scores = q @ k.transpose(-2, -1)
+    # 成分数が増えるほど内積の幅が広がるので、√D で割って幅を揃える。
+    scores = scores / math.sqrt(key_size)
+    # 行ごとに合計1の割合へ変換する。weight[b, i] は位置iが各位置を参照する割合。
+    weights = torch.softmax(scores, dim=-1)
+    # 各位置のValueをその割合で混ぜる。output[b, i] は位置iが集めた情報。[B, T, D]
+    output = weights @ v
+    return output, weights
 
 class SelfAttention(nn.Module):
+    def __init__(self, d_model: int) -> None:
+        super().__init__()
+        self.query = nn.Linear(d_model, d_model)
+        self.key = nn.Linear(d_model, d_model)
+        self.value = nn.Linear(d_model, d_model)
+        self.output = nn.Linear(d_model, d_model)
+
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        # scaled_attentionと同じ理由で、入力をそのまま返す形が作れない。1.5で実装する。
-        raise NotImplementedError("1.5で実装する")
+        # 同じxから探しているもの（Q）・持っているもの（K）・渡す中身（V）を作る。
+        q = self.query(x)
+        k = self.key(x)
+        v = self.value(x)
+        mixed, weights = scaled_attention(q, k, v)
+        output = self.output(mixed)
+        return output, weights
 
 
 class FeedForward(nn.Module):

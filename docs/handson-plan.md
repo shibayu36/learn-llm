@@ -45,6 +45,8 @@
 
 読者は機械学習に詳しくないエンジニアなので、式・shape・処理手順を並べるだけでは伝わらない。各概念は「その計算が何を意味するか」を具体例か図で先に示し、式やshapeの記述を説明の代わりにしない。たとえばToken Embeddingなら「文字や番号のままでは文字の性質を表せないので、性質を保持できるベクトルにする」という目的を先に書き、`X = token_embedding[ids] + position_embedding` の形はその後に置く。
 
+複数の位置や要素をまとめて計算する式は、まず1位置・1組の入力から出力までを具体的に追ってから導入する。同じ例の数値・記号を使い、その計算が全体の式のどの要素・行に対応するかを示す。計算結果の例を置くだけでなく、その結果が得られる過程を説明する。
+
 ### 実験と視覚表現の目的
 
 実験は「何を変え、何を観察し、何が分かるか」を先に決める。節ごとの実験は必須にせず、図・数値例・説明で理解できるものはその場で終える。配線やshapeの正しさを確かめる動作確認と、概念を理解するための実験を区別する。
@@ -196,7 +198,9 @@ train/validationは窓を切り出す前に分ける。seedを固定し、学習
 
 1.4 Position情報
 
-1.5 Q・K・Vと1-head Self-Attention
+1.5 1-head Self-Attention
+
+1.5の到達点は、Attentionが必要な理由と「入力に応じた割合で他の位置から情報を集める」という概念を理解し、その処理を実装できること。「赤い花／青い花」で必要性・図・計算・動作確認をつなぐ。内積はQ・Kを照合する道具として必要な範囲にとどめる。
 
 1.6 Causal Mask
 
@@ -255,6 +259,11 @@ Tokenizerの変更・RoPEへの拡張／プロダクト開発におけるcontext
 
 ## 参考にする文章・コード・HTML
 
+- Attention Is All You Need（Vaswaniら、2017）: https://arxiv.org/abs/1706.03762 — Transformerの原論文。3.2でQ・K・V、scaled dot-product attention、Multi-Head Attentionを確認し、4でSelf-Attentionの採用理由を確認する。
+- Stanford CS224n「Transformers」（2025）: https://cs224n.stanford.edu/slides_w25/cs224n-2025-lecture08-transformers.pdf — スライド6のQ・Kの類似度とValueの重み付き和、24〜27の行列計算・Multi-Head・スケーリングの説明を参照する。
+- Harvard NLP「The Annotated Transformer」: https://nlp.seas.harvard.edu/2018/04/03/attention.html — 原論文の説明とPyTorch実装の対応を確認する。Attentionの節でQ・Kの適合度、内積を使う計算上の利点、softmaxまでの処理を確認する。
+- 3Blue1Brown「Attention in transformers, step-by-step」: https://www.3blue1brown.com/lessons/attention/ — 文脈に応じた表現の更新からQ・K・Vへ進む説明順と、Q・Kの向きの揃い具合を内積で測る図解を参照する。名詞・形容詞などの関係は仕組みを示す仮想例として扱う。
+- YouTube（ユーザー指定の参考動画）: https://www.youtube.com/watch?v=9Tu8H7wPVWo
 - 文章・コードの提示順：`/Users/shibayu36/development/src/github.com/shibayu36/book-realtime-communication-server`
 - サンプルの責務分割・段階的拡張：`/Users/shibayu36/development/src/github.com/shibayu36/sample-realtime-communication-server/CLAUDE.md` と実装
 - HTMLの雰囲気：`/Users/shibayu36/obsidian/エンジニア知識メモ/20260921 LLMを実装しながら理解するハンズオン.html`
@@ -268,9 +277,10 @@ Tokenizerの変更・RoPEへの拡張／プロダクト開発におけるcontext
 
 | 本文 | デモ | 理解させたいこと |
 |---|---|---|
-| 1.5 | 内積→softmax | 向き・長さによるscoreの違いが、合計1の参照割合になる |
+| 1.5 | Attention前後の図 | 同じ文字・位置の入力でも、他の位置から集める情報によって出力が変わる |
+| 1.5 | 内積→softmax（任意） | 向き・長さによるscoreの違いが、合計1の参照割合になる |
 | 1.5 | Valueを順に足す | 情報を集める処理の実体は、Valueの重み付き和である |
-| 1.5 | Wq・Wk・Wvの編集 | 入力から計算するQ/K/Vと学習するWは違う。参照割合と集める情報も別である |
+| 1.5 | Wq・Wk・Wvの編集（任意） | 入力から計算するQ・K・Vと学習するWは違う。参照割合と集める情報も別である |
 | 1.6 | 未来の正解を隠す | 学習時に入力の先にある正解を参照すると、生成時に使えない経路になる |
 | 1.12 | greedy・sampling・temperature | モデルの重みを変えずに、次tokenの選び方を変えられる |
 | 導入・1.12・1.13 | 日本語の生成を1tokenずつ再生 | 選んだtokenを次の入力へ戻す。学習前後で分布と続きが変わる |
