@@ -21,8 +21,8 @@
 | 第3章 3.6 Multi-head Attention | Stage 5。本と同じく `MultiHeadAttentionWrapper`（ヘッドを並べて連結）→ `MultiHeadAttention`（1つの行列を分割）の2段階で作る |
 | 第4章 GPTモデルを一から実装する（4.2 LayerNorm、4.3 GELU/FFN、4.4 ショートカット、4.5 Transformerブロック） | Stage 0で実装済み |
 | 第4章 4.6 GPTモデル | Stage 0で1層版 `OneLayerOneHeadGPT` を実装済み。層を積む `GPTModel` はStage 4 |
-| 第4章 4.7 テキストを生成する | Stage 2。`generate_text_simple`（greedy） |
-| 第5章 ラベルなしデータでの事前学習（5.1 評価、5.2 訓練、5.3 デコーディング戦略、5.4 保存と読み込み） | Stage 2〜3。損失関数・訓練ループ・temperature・top-k・保存 |
+| 第4章 4.7 テキストを生成する | Stage 2。本の `generate_text_simple`（greedy）は作らず、最初から `generate`（`temperature=0` でgreedy）にする |
+| 第5章 ラベルなしデータでの事前学習（5.1 評価、5.2 訓練、5.3 デコーディング戦略、5.4 保存と読み込み） | Stage 2〜3。損失関数・訓練ループ・temperature・保存。5.3.2 top-kは学習後の生成を見て必要なら足す |
 | 第5章 5.5 OpenAIの重みを読み込む | やらない。語彙もサイズも違うので読み込めない |
 | 第6章 分類のためのファインチューニング | やらない（必要になったら再検討） |
 | 第7章 指示に従うためのファインチューニング | Stage 6の候補。Multi-headまで終えてから判断する |
@@ -37,7 +37,7 @@
 - MLP中間次元は本どおり `4 * d_model` 固定。dropoutなし。Q/K/Vと出力層はbiasなし
 - Causal maskは本の `CausalAttention` と同じ `triu(diagonal=1)` + `masked_fill(-inf)`
 - 本では `GPT_CONFIG_124M` の辞書だが、ここでは `Config` クラス（型付き）にする
-- 実行はCPU固定。device選択のコードは書かない
+- 実行はCPU固定。device選択のコードは書かない。Mac GPU（MPS）は今のサイズでは効きにくいので、Stage 6でモデルを大きくするときに検討する（変える場所は `main.py` の `.to(device)`、`gpt.py` の `torch.arange(..., device=)`、`calc_loss_batch`、`torch.load(map_location=)` の4か所）
 - コードのコメントは本の用語（「Causal Attention」「ショートカット接続」「層正規化」など）に合わせる
 
 ## 実行条件
@@ -80,7 +80,7 @@ llms-from-scratch/
   gpt.py           モデルの部品とGPT本体（本のgpt.pyに相当）
   tokenizer.py     文字Tokenizer（Stage 1）
   dataset.py       GPTDataset + DataLoader（Stage 1）
-  generate.py      generate_text_simple → generate（Stage 2〜3）
+  generate.py      generate（temperature付き。Stage 2）
   train.py         損失・評価・訓練ループ・保存（Stage 2〜3）
   main.py          入口。`train` と `generate` のサブコマンドを持つ
   experiments/     層数・ヘッド数の比較スクリプト（Stage 4〜）
@@ -94,7 +94,7 @@ llms-from-scratch/
 Stage 3以降の `main.py` は次の2つのサブコマンドを持つ。
 
 - `uv run main.py train`：学習して `runs/<run_name>/` にモデル・Config・語彙・評価値を保存する
-- `uv run main.py generate "日本の首都は"`：保存済みのモデルと語彙を読み込み、1つのpromptの続きを生成する。学習をやり直さずに何度でも試せる。オプションでtemperatureとtop-kを指定する
+- `uv run main.py generate "日本の首都は"`：保存済みのモデルと語彙を読み込み、1つのpromptの続きを生成する。学習をやり直さずに何度でも試せる。オプションでtemperatureを指定する
 
 promptは1回の実行につき1つにする。複数試すときはシェルで繰り返し呼ぶ。
 
@@ -112,13 +112,12 @@ promptは1回の実行につき1つにする。複数試すときはシェルで
 
 ### Stage 2：生成と損失（本 4.7、5.1）
 
-- `generate_text_simple`（greedy）で、学習前のモデルから「日本の首都は」の続きを出す。でたらめな文字列になることを確認する
+- `generate`（`temperature=0` でgreedy、`>0` でsampling）で、学習前のモデルから「日本の首都は」の続きを出す。でたらめな文字列になること、greedyは毎回同じでsamplingは毎回違うことを確認する
 - 損失（cross entropy）を1バッチで計算し、学習前の値が `ln(vocab_size)` 付近であることを確認する
 
 ### Stage 3：1層1ヘッドの学習（本 5.2〜5.4）
 
 - 訓練ループ（AdamW）、一定stepごとのtrain/validation loss、学習中の生成サンプル表示
-- temperatureとtop-kによるsampling
 - 学習後のモデル・Config・語彙の保存と読み込み。語彙はモデルと組で保存し、読み込み時はtrainを読み直さず保存した語彙を使う
 - `main.py` を `train` / `generate` のサブコマンドに分ける
 - 基準の記録：パラメータ数、loss曲線、学習前後の生成、所要時間

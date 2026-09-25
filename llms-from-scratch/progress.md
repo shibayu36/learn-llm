@@ -4,10 +4,10 @@
 
 ## 現在の作業
 
-Stage 1（Tokenizerとデータ）は完了。次はStage 2の `generate.py`（greedyの `generate_text_simple`）と、1バッチの損失計算から始める。
+Stage 2（生成と損失）は実装と動作確認まで完了。次はStage 3の訓練ループから始める。
 
-- Stage 1までのコードと記録はすべてcommit済み
-- `main.py` は現在Stage 1の動作確認コード。Stage 2に進むときは、Tokenizerと1バッチの確認は残し、Stage 2の確認を末尾に足す。Stage 3で `train` / `generate` のサブコマンド構成に変える（`plan.md` 参照）
+- Stage 1までのコードと記録はcommit済み。Stage 2の `generate.py`・`train.py`・`main.py` の追記は未commit
+- `main.py` は現在Stage 1〜2の動作確認コード。Stage 3で `train` / `generate` のサブコマンド構成に変える（`plan.md` 参照）。本の `calc_loss_loader`（5.1.3）は定期評価が必要になるStage 3で `train.py` に足す
 
 ## Stage 0：部品の実装
 
@@ -30,14 +30,13 @@ Stage 1（Tokenizerとデータ）は完了。次はStage 2の `generate.py`（g
 
 ## Stage 2：生成と損失
 
-- [ ] `generate.py`：`generate_text_simple`（greedy）
-- [ ] 学習前のモデルで「日本の首都は」の続きを生成し、でたらめな文字列を確認
-- [ ] `train.py`：1バッチの損失を計算し、学習前の値が `ln(vocab_size)` 付近であることを確認
+- [x] `generate.py`：`generate`（`temperature=0` でgreedy、`>0` でsampling）と `text_to_token_ids`・`token_ids_to_text`（2026-09-25）
+- [x] 学習前のモデルで「日本の首都は」の続きを生成し、でたらめな文字列を確認。T=0は毎回同じ、T=0.8は毎回違うことも確認（2026-09-25）
+- [x] `train.py`：1バッチの損失を計算し、学習前の値が `ln(vocab_size)` 付近であることを確認（2026-09-25）
 
 ## Stage 3：1層1ヘッドの学習
 
 - [ ] 訓練ループ・定期評価・学習中の生成サンプル
-- [ ] temperature・top-kのsampling
 - [ ] モデル・Config・語彙の保存と読み込み（`runs/l1h1/` に model.pt・config.json・vocab.json）
 - [ ] `main.py` の `train` / `generate` サブコマンド
 - [ ] 基準の記録（`runs/l1h1/metrics.json`）：パラメータ数・loss曲線・学習前後の生成・所要時間
@@ -79,3 +78,14 @@ Stage 1（Tokenizerとデータ）は完了。次はStage 2の `generate.py`（g
 - 1バッチは `inputs [16, 256]`・`targets [16, 256]`。inputsの1文字後ろがtargetsになっていることを確認
 - `OneLayerOneHeadGPT` の出力は `[16, 256, 4052]`、パラメータ数 580,800（位置埋め込みが 256×64 になり、context 64のときの568,512から12,288増えた）
 - context_lengthの検討：1stepの時間は 64で8ms・128で12ms・256で21ms。計算時間は制約にならないので、話題の持続を見やすい256にした
+
+### Stage 2：生成と損失（2026-09-25）
+
+- 学習前の「日本の首都は」の続き（30文字）。本の "Featureiman Byeswickattribute argue" と同じく、訓練前はでたらめな文字列になる
+  - T=0（greedy）：`盾!ワ銛剖般篠諱券倖貧†替凧酩語盛府柑肛ゲ敬↔登存Y厖岬翅巷`。2回呼んで同じ
+  - T=0.8：`塗葯樫拠瘍校経ρカ啄ぎ七ơ蔓襠祐潔腰椒褪么混薙郡沈鯨鹸櫨滴様`、`ド胎数稔苔旧ぐ此銭句豪遅設拮瘡訂戯旗己馴劫怯聲憤渤髙爪噂⣦嫡`。呼ぶたびに違う
+- 設計の決定：本の `generate_text_simple` は作らず、最初から `generate(temperature)` にした。greedyは T→0 の極限なので `temperature=0` の分岐で表す（0で割るとsoftmaxが壊れるため）。top-kは評価に使わず、学習後のT=0.8の出力に尻尾の文字が混ざって読めないときだけ足す
+- 学習前の1バッチの損失：手計算（softmax→正解の確率→log→平均→-1倍）8.4707、`cross_entropy` 8.4707 で一致。`ln(4052)=8.307` よりやや大きい
+  - 正解の文字に割り当てた確率は 0.0002〜0.0004 で、均等な 1/4052=0.000247 の前後に散らばっている
+  - 均等より損失が大きいのは、初期値がランダムなので確率分布が均等ではなく、たまたま高い確率を付けた文字が正解になるとは限らないため。均等分布は「正解を知らないときの損失の下限」で、でたらめな偏りがあるぶん損失は上に出る
+- パープレキシティ `exp(8.47)=4,773`。語彙数4,052より大きく、「次の文字の候補を全く絞れていない」状態
