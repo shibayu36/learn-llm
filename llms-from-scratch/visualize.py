@@ -5,10 +5,14 @@ import torch
 import torch.nn as nn
 import umap
 
+from gpt import TransformerBlock
 from tokenizer import CharTokenizer
 
 # 学習済みモデルの内部表現を観察するためのデータを作る。図はHTML側で描くので、
 # ここでは投影した座標と元のベクトルをまとめるところまでを担当する
+#
+# 1. Token embeddingの地図: build_embedding_map
+# 2. Hidden stateの軌跡: build_hidden_state_trajectories
 
 # PCAの軸を求めるのに使う、出現頻度上位の文字数。ほとんど学習で更新されない稀な文字が
 # 軸を支配しないようにするため。投影自体は全tokenに対して行う
@@ -138,6 +142,119 @@ def build_embedding_map(
 
 
 DATA_PLACEHOLDER = "/*__EMBEDDING_MAP_DATA__*/null"
+
+
+# ---- 2. Hidden stateの軌跡 ----
+#
+# 入力文と対象位置は data/hidden-state-sentences.json。対象位置の文字を全文でそろえる
+# ので、Layer 0（token埋め込み＋位置埋め込み）はどの文でも同じベクトルになり、層を
+# 通ったあとの違いは前にある文脈の違いだけから生まれる
+
+
+def collect_hidden_states(model: nn.Module, token_ids: list[int]) -> list[torch.Tensor]:
+    """1つの入力を通し、Layer 0とTransformerBlockごとの出力を [T, D] のリストで返す。
+
+    Layer 0 はブロックへの入力（token埋め込み＋位置埋め込み）、Layer i は i 番目の
+    ブロックの出力。final_norm より前の値でそろえる。モデル側のコードは変えず、
+    register_forward_hook で「そのモジュールが計算を終えるたびに呼ばれる関数」を
+    登録して途中の値を横取りする
+    """
+    blocks: list[nn.Module] = []
+    for module in model.modules():
+        if isinstance(module, TransformerBlock):
+            blocks.append(module)
+
+    hidden_states: list[torch.Tensor] = []
+    handles = []
+    for index in range(len(blocks)):
+        is_first = index == 0
+
+        def hook(module, inputs, output, is_first=is_first):
+            # inputs はforwardに渡された引数のタプル、output は戻り値。
+            # [B, T, D] の先頭（B=1）を取り出して [T, D] にする
+            if is_first:
+                hidden_states.append(inputs[0][0].detach())
+            hidden_states.append(output[0].detach())
+
+        handles.append(blocks[index].register_forward_hook(hook))
+
+    # torch.no_grad() の中では学習用の計算グラフを作らないので、推論だけなら軽くなる
+    with torch.no_grad():
+        model(torch.tensor([token_ids]))
+    for handle in handles:
+        handle.remove()
+    return hidden_states
+
+
+def cosine_similarity(a: torch.Tensor, b: torch.Tensor) -> float:
+    return (torch.dot(a, b) / (a.norm() * b.norm())).item()
+
+
+def build_hidden_state_trajectories(
+    model: nn.Module,
+    tokenizer: CharTokenizer,
+    texts: list[str],
+    target_positions: list[int],
+) -> dict:
+    """対象tokenの各層のベクトルと、文どうしのコサイン類似度をまとめる。
+
+    sentences[s]["targets"][t]["layers"][l] が、文 s の t 番目の対象位置の Layer l。
+    similarities[t][l] は同じ対象位置・同じ層での文どうしの類似度行列
+    """
+    sentences: list[dict] = []
+    for text in texts:
+        token_ids = tokenizer.encode(text)
+        if tokenizer.unk_id in token_ids:
+            raise ValueError(f"語彙にない文字を含む: {text}")
+        hidden_states = collect_hidden_states(model, token_ids)
+
+        targets: list[dict] = []
+        for position in target_positions:
+            layers: list[dict] = []
+            for layer_vectors in hidden_states:
+                vector: list[float] = []
+                for value in layer_vectors[position].tolist():
+                    vector.append(round(value, 4))
+                layers.append({
+                    "norm": round(layer_vectors[position].norm().item(), 4),
+                    "vector": vector,
+                })
+            targets.append({
+                "position": position,
+                "token": tokenizer.int_to_str[token_ids[position]],
+                "layers": layers,
+            })
+        sentences.append({"text": text, "targets": targets})
+
+    # 対象位置の文字が全文で同じでなければ、文脈の違いだけを見る前提が崩れる
+    for target_index in range(len(target_positions)):
+        first_token = sentences[0]["targets"][target_index]["token"]
+        for sentence in sentences:
+            if sentence["targets"][target_index]["token"] != first_token:
+                raise ValueError(f"位置 {target_positions[target_index]} の文字が文によって違う")
+
+    num_layers = len(sentences[0]["targets"][0]["layers"])
+    similarities: list[list[list[list[float]]]] = []
+    for target_index in range(len(target_positions)):
+        per_layer: list[list[list[float]]] = []
+        for layer in range(num_layers):
+            matrix: list[list[float]] = []
+            for a in sentences:
+                row: list[float] = []
+                vector_a = torch.tensor(a["targets"][target_index]["layers"][layer]["vector"])
+                for b in sentences:
+                    vector_b = torch.tensor(b["targets"][target_index]["layers"][layer]["vector"])
+                    row.append(round(cosine_similarity(vector_a, vector_b), 4))
+                matrix.append(row)
+            per_layer.append(matrix)
+        similarities.append(per_layer)
+
+    return {
+        "target_positions": target_positions,
+        "num_layers": num_layers,
+        "sentences": sentences,
+        "similarities": similarities,
+    }
 
 
 def save_embedding_map_html(data: dict, template_path: Path, output_path: Path) -> None:

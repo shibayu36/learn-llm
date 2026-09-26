@@ -14,10 +14,15 @@ from gpt import OneLayerOneHeadGPT
 from plot import save_loss_plot
 from tokenizer import CharTokenizer
 from train import train_model
-from visualize import build_embedding_map, save_embedding_map_html
+from visualize import (
+    build_embedding_map,
+    build_hidden_state_trajectories,
+    save_embedding_map_html,
+)
 
 DATA_DIR = Path("data/fineweb-japanese-10k")
 PROMPTS_PATH = Path(__file__).parent / "data/evaluation-prompts.json"
+HIDDEN_STATE_SENTENCES_PATH = Path(__file__).parent / "data/hidden-state-sentences.json"
 RUNS_DIR = Path("runs")
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
@@ -184,6 +189,36 @@ def run_visualize_embeddings(run_name: str) -> None:
     print("ブラウザで開く:", html_path)
 
 
+def run_visualize_hidden_states(run_name: str) -> None:
+    run_dir = RUNS_DIR / run_name
+    model, _config, tokenizer = load_run(run_dir)
+    inputs = json.loads(HIDDEN_STATE_SENTENCES_PATH.read_text(encoding="utf-8"))
+
+    data = build_hidden_state_trajectories(
+        model, tokenizer, inputs["sentences"], inputs["target_positions"]
+    )
+    data["run_name"] = run_name
+    json_path = run_dir / "hidden_states.json"
+    json_path.write_text(
+        json.dumps(data, ensure_ascii=False, allow_nan=False) + "\n", encoding="utf-8"
+    )
+
+    sentences = data["sentences"]
+    for target_index in range(len(data["target_positions"])):
+        position = data["target_positions"][target_index]
+        token = sentences[0]["targets"][target_index]["token"]
+        print(f"=== 位置 {position}「{token}」 ===")
+        for layer in range(data["num_layers"]):
+            print(f"[Layer {layer}]")
+            for sentence_index in range(len(sentences)):
+                sentence = sentences[sentence_index]
+                norm = sentence["targets"][target_index]["layers"][layer]["norm"]
+                row = data["similarities"][target_index][layer][sentence_index]
+                row_text = " ".join(f"{value:6.3f}" for value in row)
+                print(f"  {sentence['text'][:8]}  norm {norm:6.3f}  cos {row_text}")
+    print("保存先:", json_path)
+
+
 def main() -> None:
     # argparse はコマンドライン引数を解釈する標準ライブラリ。
     # `uv run main.py train` のように動詞で処理を切り替える
@@ -207,6 +242,9 @@ def main() -> None:
     visualize_parser = subparsers.add_parser("visualize-embeddings")
     visualize_parser.add_argument("--run-name", default="l1h1")
 
+    hidden_parser = subparsers.add_parser("visualize-hidden-states")
+    hidden_parser.add_argument("--run-name", default="l1h1")
+
     args = parser.parse_args()
 
     if args.command == "train":
@@ -217,6 +255,8 @@ def main() -> None:
         run_evaluate(args.run_name)
     elif args.command == "visualize-embeddings":
         run_visualize_embeddings(args.run_name)
+    elif args.command == "visualize-hidden-states":
+        run_visualize_hidden_states(args.run_name)
 
 
 if __name__ == "__main__":
