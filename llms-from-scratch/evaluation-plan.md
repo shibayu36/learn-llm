@@ -1,20 +1,41 @@
 # llms-from-scratch の評価計画
 
-「未知の文章の次の文字を予測する力」と「生成する文章の質」を別々に評価する。Stage 3の「基準の記録」で以下を実装し、Stage 4・5でも同じ条件で比較する。保存済みモデルを読み込んで評価できるようにし、評価のための再学習は不要にする。
+「未知の文章の次の文字を予測する力」と「生成する文章の質」を別々に評価する。Stage 3の「基準の記録」で用意した評価を、Stage 4・5でも同じ条件で使う。保存済みモデルを読み込むので、評価のための再学習は不要。
+
+## 実行方法
+
+`llms-from-scratch/` で実行する。
+
+```bash
+uv run main.py evaluate --run-name l1h1
+uv run main.py evaluate --run-name l1h1-s5000-lr1e-3
+```
+
+出力先は評価対象の `runs/<run_name>/`。モデル間の最終lossは `evaluation-results.md` の表で比較する。
+
+- `metrics.json`：`training` に学習履歴、`evaluation` に全バッチのloss・評価token数・パラメータ数・生成条件と20出力・評価時間を保存する。評価をやり直すと `evaluation` だけを更新する
+- `loss.png`：学習stepごとのtrain・validation loss曲線。`train` 実行時に履歴とともに保存する
+
+学習曲線は先頭8バッチ、結果表は全バッチのlossを使う。評価範囲を明記し、同じ条件で測った結果を比べる。
+
+同じrun名で学習し直すと、そのrunのモデル・学習履歴・loss曲線を置き換える。古い全バッチ評価も消えるため、学習後に `evaluate` を実行して作り直す。
 
 ## 1. validation全体でlossを測る
 
 - 学習中は今のまま、200stepごとにtrain・validationの先頭8バッチを測る。学習の進み方や過学習の兆候を見るために使う
 - 学習後の比較では、固定した `data/fineweb-japanese-10k/validation.jsonl` の全バッチを評価する。保存済みのConfig・語彙を使い、validationから語彙を作り直さない
 - 文書をEOSでつなぎ、現行の `GPTDataset` と同じ `context_length=256`・`stride=256` で窓を作る。`batch_size=16`・`shuffle=False`・`drop_last=False` とし、最後の小さいバッチも含める
-- ここでの「全体」は256tokenの完全な窓すべてを指す。現行のDatasetでは末尾の短い窓は作らないため、評価対象token数と末尾の未評価token数も記録する
+- ここでの「全体」は256tokenの完全な窓すべてを指す。現行のDatasetでは末尾の短い窓は作らない
 - `model.eval()` と `torch.no_grad()` を使う。正解の文章を入力として次の文字の確率を測り、重みは更新しない
 - lossは `各バッチの平均loss × そのバッチの正解token数` を合計し、正解tokenの総数で割る。バッチ平均の単純平均では、最後の小さいバッチを過大に重み付けしてしまうため
-- perplexityは全体の平均lossから `exp(loss)` で求める。各バッチのperplexityを平均しない
 
 先頭8バッチのlossと全バッチのlossは別の項目として記録する。既存の評価結果にある4.264・3.649は先頭8バッチの値なので、全バッチの値と混ぜて比較しない。
 
 ## 2. 固定した10個のpromptで生成を比較する
+
+プロンプトのID・本文・sampling対象は `data/evaluation-prompts.json` で管理する。`main.py` は評価のたびにこのファイルを読み込み、`evaluate.py` の生成処理に渡す。記載順に生成する。本文を変更するときはJSONと以下の表を更新する。
+
+全promptでgreedyを実行し、`"sampling": true` を付けたpromptではsamplingも実行する。省略時はgreedyのみ。temperatureとseedは全sampling対象で共通とする。
 
 | ID | prompt |
 |---|---|
@@ -33,8 +54,8 @@
 
 - 全promptで `max_new_tokens=100` とする。通常の文字は1tokenだが、EOS・UNKもあるので生成量はtoken数でそろえる
 - greedy（`temperature=0`）は各promptにつき1回生成する
-- sampling（`temperature=0.8`）は各promptにつきseed 42・43・44で3回生成する。モデル読み込み後、各生成の直前にseedを設定し直す。実行順に左右されず同じ条件で比べるため
-- 1モデルにつき計40出力を残す。よい出力だけを選ばず、同じprompt・temperature・seedの組でモデル間の出力を並べる
+- sampling（`temperature=0.8`）はID04「プログラミングを学ぶには、」だけをseed 42〜51で10回生成する。モデル読み込み後、各生成の直前にseedを設定し直す。同じ書き出しでの生成のばらつきを観察する
+- 1モデルにつき計20出力を残す。先に10promptのgreedy、次にID04のsamplingをseed順で保存する。よい出力だけを選ばず、同じprompt・temperature・seedの組でモデル間の出力を並べる
 - 学習前後を比べるときも同じprompt・生成条件を使う。既存runに学習前の出力がなければ未記録とし、学習後の評価から始める
 
 各出力では、次の4点について観察と根拠になる文字列を残す。合計点にはせず、どの点が改善・悪化したかを見る。
@@ -50,20 +71,21 @@ validation文書の元の続きとの完全一致は求めない。「東京」�
 
 ## 記録と比較
 
-機械で再利用する結果は `runs/<run_name>/metrics.json`、残したい比較結果と観察は `evaluation-results.md` に記録する。`metrics.json` の保存はこれから実装する。
+機械で再利用する結果は `runs/<run_name>/metrics.json`、残したい比較結果と観察は `evaluation-results.md` に記録する。文章の自然さなどの観察は、生成結果を読んで人が記録する。
 
-- run名・モデル構成・パラメータ数・学習条件・データのmanifest・評価条件
-- 学習中のtrain/validation lossの推移、学習後の全バッチvalidation loss・perplexity・評価対象token数・末尾の未評価token数
+- run名・モデル構成・パラメータ数・学習条件。モデル構成と学習条件は `runs/<run_name>/config.json`、データの取得条件は `data/fineweb-japanese-10k/manifest.json` を参照する
+- 学習中のtrain/validation lossの推移、学習後の全バッチvalidation loss・評価対象token数
 - promptのIDと文字列・temperature・seed・生成結果、学習と評価の所要秒数。既存runで取れていない項目は未記録とする
 
 まず既存の `l1h1` と `l1h1-s5000-lr1e-3` を同じ評価条件で測り直す。この2つは学習率と更新回数が違うので、その違いも併記する。Stage 4・5ではデータ・学習率・更新回数・batch・context・学習seedをそろえ、変えるのは層数またはヘッド数だけにする。
 
-lossの低下と、文章らしさ、話題を保つ能力は区別して読む。samplingの3つのseedは生成のばらつきを見るためのもので、複数seedで学習を繰り返した比較ではない。単一の学習seedで得た差を一般則にしない。
+lossの低下と、文章らしさ、話題を保つ能力は区別して読む。samplingの10個のseedは生成のばらつきを見るためのもので、複数seedで学習を繰り返した比較ではない。単一の学習seedで得た差を一般則にしない。
 
 ## 実装する順序と完了条件
 
 1. 全バッチのloss評価を実装する。手動で既存runを読み込んで値と評価token数を確認し、自動テストで端数バッチを含む集計が全tokenの平均と一致することを確かめる
-2. 固定promptの生成と記録を実装する。手動で40出力と4観点の観察を確認し、自動テストで同じモデル・prompt・生成条件なら再実行しても同じ出力になることを確かめる
+2. 固定promptの生成と記録を実装する。手動で20出力と4観点の観察を確認し、自動テストで同じモデル・prompt・生成条件なら再実行しても同じ出力になることを確かめる
 3. 既存2runの結果を `evaluation-results.md` に並べる。全バッチのlossと生成の両方から、改善した点・残っている問題を記録する
+4. 学習履歴の保存・保持を確認する。学習曲線のPNGを開いてラベルと曲線を確認し、全バッチのlossは結果表に記録する
 
-データ・Tokenizer・contextや窓の切り方を変える場合は、以前のloss・perplexityと直接比較せず、比較対象も同じ条件で再評価する。知識・読解・指示への追従を評価したくなったら、専用の問題と採点基準をこの計画に追加する。
+データ・Tokenizer・contextや窓の切り方を変える場合は、以前のlossと直接比較せず、比較対象も同じ条件で再評価する。知識・読解・指示への追従を評価したくなったら、専用の問題と採点基準をこの計画に追加する。
