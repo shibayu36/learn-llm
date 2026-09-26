@@ -37,6 +37,10 @@
 - MLP中間次元は本どおり `4 * d_model` 固定。dropoutなし。Q/K/Vと出力層はbiasなし
 - Causal maskは本の `CausalAttention` と同じ `triu(diagonal=1)` + `masked_fill(-inf)`
 - 本では `GPT_CONFIG_124M` の辞書だが、ここでは `Config` クラス（型付き）にする
+- 訓練ループは本の `train_model_simple` のepoch単位ではなく、`steps` 回の更新で回す。層数・ヘッド数の比較で「同じ回数だけ更新した」とそろえるため。trainは1,447バッチなので2,000stepは約1.4周
+- 学習中の評価は、本と同じく訓練セット・検証セットの先頭 `eval_batches` バッチで行う。ただし訓練用の `DataLoader` は `shuffle=True` で毎回違う窓が出るので、評価用に `shuffle=False` の `DataLoader` を別に作り、毎回同じ窓で測る
+- optimizerは本と同じ `AdamW(lr=3e-4, weight_decay=0.1)`。保存はモデルの `state_dict` だけで、optimizerの状態は保存しない（学習の再開はしない）
+- `runs/<run_name>/config.json` には `Config` の値に加えてモデルのクラス名を入れる。Stage 4で `GPTModel` が増えても `generate` がどのクラスを組み立てるか迷わないようにするため
 - 実行はCPU固定。device選択のコードは書かない。Mac GPU（MPS）は今のサイズでは効きにくいので、Stage 6でモデルを大きくするときに検討する（変える場所は `main.py` の `.to(device)`、`gpt.py` の `torch.arange(..., device=)`、`calc_loss_batch`、`torch.load(map_location=)` の4か所）
 - コードのコメントは本の用語（「Causal Attention」「ショートカット接続」「層正規化」など）に合わせる
 

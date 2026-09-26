@@ -10,6 +10,9 @@ class Config:
         self.steps: int = 2000
         # AdamWに渡す学習率
         self.learning_rate: float = 0.0003
+        # AdamWの重み減衰。更新のたびに全パラメータを少しだけ0に近づけ、一部のパラメータ
+        # だけ極端に大きくなるのを防ぐ。本と同じ0.1
+        self.weight_decay: float = 0.1
         # 何stepごとにvalidation lossを測るか
         self.eval_every: int = 200
         # 評価1回で使うバッチ数
