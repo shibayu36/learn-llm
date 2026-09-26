@@ -77,9 +77,24 @@ validation文書の元の続きとの完全一致は求めない。「東京」�
 - 学習中のtrain/validation lossの推移、学習後の全バッチvalidation loss・評価対象token数
 - promptのIDと文字列・temperature・seed・生成結果、学習と評価の所要秒数。既存runで取れていない項目は未記録とする
 
-まず既存の `l1h1` と `l1h1-s5000-lr1e-3` を同じ評価条件で測り直す。この2つは学習率と更新回数が違うので、その違いも併記する。Stage 4・5ではデータ・学習率・更新回数・batch・context・学習seedをそろえ、変えるのは層数またはヘッド数だけにする。
+まず既存の `l1h1` と `l1h1-s5000-lr1e-3` を同じ評価条件で測り直す。この2つは学習率と更新回数が違うので、その違いも併記する。Stage 4・5ではデータ・d_model・学習率・更新回数・batch・context・学習seedをそろえ、変えるのは層数またはヘッド数だけにする。
 
 lossの低下と、文章らしさ、話題を保つ能力は区別して読む。samplingの10個のseedは生成のばらつきを見るためのもので、複数seedで学習を繰り返した比較ではない。単一の学習seedで得た差を一般則にしない。
+
+## Stage 4の前にd_modelだけを変える比較
+
+`d_model=64` の `l1h1-s5000-lr1e-3` と、`d_model=128` の `l1h1-d128-s5000-lr1e-3` を比べる。1層1ヘッド・5,000step・学習率0.001・batch 16・context 256・weight decay 0.1・学習seed 42をそろえる。データ・Tokenizer・評価promptも同じものを使う。
+
+`config.py` の `d_model` を128にしてから、次を順に実行する。学習は初期状態から行い、64次元のrunは比較対象として残す。
+
+```bash
+uv run main.py train --run-name l1h1-d128-s5000-lr1e-3
+uv run main.py evaluate --run-name l1h1-d128-s5000-lr1e-3
+```
+
+全バッチのvalidation loss・固定20出力・学習時間を比較し、`evaluation-results.md` に記録する。学習時間には200stepごとの評価・サンプル生成も含まれるため、学習時間を5,000で割った値は更新処理だけの1step時間ではない。
+
+この変更では文字埋め込みに加え、Attention・MLP・出力層も広がる。比較できるのはモデル全体の幅を増やした効果であり、文字埋め込みだけの効果ではない。Stage 4・5へ進む前に `plan.md` の基準値をそろえる。batch sizeの変更実験は行わない。
 
 ## 実装する順序と完了条件
 
