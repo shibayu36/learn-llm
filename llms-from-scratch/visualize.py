@@ -8,11 +8,11 @@ import umap
 from gpt import TransformerBlock
 from tokenizer import CharTokenizer
 
-# 学習済みモデルの内部表現を観察するためのデータを作る。図はHTML側で描くので、
-# ここでは投影した座標と元のベクトルをまとめるところまでを担当する
+# 学習済みモデルの内部表現を観察するためのデータを作る。図や表はHTML側で描くので、
+# ここでは投影した座標や集計した表をまとめるところまでを担当する
 #
 # 1. Token embeddingの地図: build_embedding_map
-# 2. Hidden stateの軌跡: build_hidden_state_trajectories
+# 2. Hidden stateの表（予測と近い文脈）: build_hidden_state_tables
 
 # PCAの軸を求めるのに使う、出現頻度上位の文字数。ほとんど学習で更新されない稀な文字が
 # 軸を支配しないようにするため。投影自体は全tokenに対して行う
@@ -141,14 +141,17 @@ def build_embedding_map(
     }
 
 
-DATA_PLACEHOLDER = "/*__EMBEDDING_MAP_DATA__*/null"
-
-
-# ---- 2. Hidden stateの軌跡 ----
+# ---- 2. Hidden stateの表 ----
 #
 # 入力文と対象位置は data/hidden-state-sentences.json。対象位置の文字を全文でそろえる
 # ので、Layer 0（token埋め込み＋位置埋め込み）はどの文でも同じベクトルになり、層を
 # 通ったあとの違いは前にある文脈の違いだけから生まれる
+
+# 近い文脈を探す範囲。validationの先頭からこの数のtokenだけ使う。全層のベクトルを
+# メモリに持つので全体は使わず、類似度0.9以上の近傍が十分に出る量にとどめた
+NEIGHBOR_CORPUS_TOKENS = 40000
+# 予測・近傍とも上位何件を出すか
+TOP_K = 10
 
 
 def collect_hidden_states(model: nn.Module, token_ids: list[int]) -> list[torch.Tensor]:
@@ -156,8 +159,7 @@ def collect_hidden_states(model: nn.Module, token_ids: list[int]) -> list[torch.
 
     Layer 0 はブロックへの入力（token埋め込み＋位置埋め込み）、Layer i は i 番目の
     ブロックの出力。final_norm より前の値でそろえる。モデル側のコードは変えず、
-    register_forward_hook で「そのモジュールが計算を終えるたびに呼ばれる関数」を
-    登録して途中の値を横取りする
+    「モジュールの計算の前後に呼ばれる関数」（hook）を登録して途中の値を横取りする
     """
     blocks: list[nn.Module] = []
     for module in model.modules():
@@ -165,18 +167,18 @@ def collect_hidden_states(model: nn.Module, token_ids: list[int]) -> list[torch.
             blocks.append(module)
 
     hidden_states: list[torch.Tensor] = []
-    handles = []
-    for index in range(len(blocks)):
-        is_first = index == 0
 
-        def hook(module, inputs, output, is_first=is_first):
-            # inputs はforwardに渡された引数のタプル、output は戻り値。
-            # [B, T, D] の先頭（B=1）を取り出して [T, D] にする
-            if is_first:
-                hidden_states.append(inputs[0][0].detach())
-            hidden_states.append(output[0].detach())
+    # inputs はforwardに渡された引数のタプル、output は戻り値。
+    # どちらも [B, T, D] なので、先頭（B=1）を取り出して [T, D] にする
+    def capture_block_input(module, inputs):
+        hidden_states.append(inputs[0][0])
 
-        handles.append(blocks[index].register_forward_hook(hook))
+    def capture_block_output(module, inputs, output):
+        hidden_states.append(output[0])
+
+    handles = [blocks[0].register_forward_pre_hook(capture_block_input)]
+    for block in blocks:
+        handles.append(block.register_forward_hook(capture_block_output))
 
     # torch.no_grad() の中では学習用の計算グラフを作らないので、推論だけなら軽くなる
     with torch.no_grad():
@@ -186,78 +188,196 @@ def collect_hidden_states(model: nn.Module, token_ids: list[int]) -> list[torch.
     return hidden_states
 
 
+def target_token(texts: list[str], position: int) -> str:
+    """全文で position の文字が同じことを確かめて返す。違うと文脈だけの比較にならない。"""
+    token = texts[0][position]
+    for text in texts:
+        if text[position] != token:
+            raise ValueError(f"位置 {position} の文字が文によって違う: {text}")
+    return token
+
+
 def cosine_similarity(a: torch.Tensor, b: torch.Tensor) -> float:
     return (torch.dot(a, b) / (a.norm() * b.norm())).item()
 
 
-def build_hidden_state_trajectories(
+def similarity_matrix(vectors: torch.Tensor) -> list[list[float]]:
+    """[N, D] の各行どうしのコサイン類似度を N×N の表で返す。"""
+    matrix: list[list[float]] = []
+    for a in vectors:
+        row: list[float] = []
+        for b in vectors:
+            row.append(round(cosine_similarity(a, b), 4))
+        matrix.append(row)
+    return matrix
+
+
+def display_token(tokenizer: CharTokenizer, token_id: int) -> str:
+    """表示・添字用に1文字へそろえる。
+
+    <|endoftext|> や <|unk|> はそのままdecodeすると複数文字になり、前後の文字を
+    切り出すときの添字がずれるので、専用の記号1文字に置き換える
+    """
+    if token_id == tokenizer.eos_id:
+        return "␃"
+    if token_id == tokenizer.unk_id:
+        return "�"
+    token = tokenizer.int_to_str[token_id]
+    if token == "\n":
+        return "␤"
+    return token
+
+
+def collect_neighbor_corpus(
+    model: nn.Module, token_ids: list[int], context_length: int
+) -> tuple[list[int], list[torch.Tensor]]:
+    """近い文脈を探す土台を作る。
+
+    context_length幅の非重複窓ごとにforwardし、層ごとに全窓のベクトルを
+    [コーパスtoken数, D] にまとめ、コサイン類似度を内積で測れるよう各行を
+    ノルムで割って正規化する。窓に満たない末尾のtokenは捨てる
+    """
+    corpus_token_ids: list[int] = []
+    chunks_by_layer: list[list[torch.Tensor]] = []
+    for start in range(0, len(token_ids) - context_length + 1, context_length):
+        window = token_ids[start:start + context_length]
+        layer_vectors = collect_hidden_states(model, window)
+        if len(chunks_by_layer) == 0:
+            for _ in layer_vectors:
+                chunks_by_layer.append([])
+        for layer in range(len(layer_vectors)):
+            chunks_by_layer[layer].append(layer_vectors[layer])
+        corpus_token_ids.extend(window)
+
+    normalized_by_layer: list[torch.Tensor] = []
+    for chunks in chunks_by_layer:
+        matrix = torch.cat(chunks)
+        normalized_by_layer.append(matrix / matrix.norm(dim=1, keepdim=True))
+    return corpus_token_ids, normalized_by_layer
+
+
+def predict_next_char(model: nn.Module, tokenizer: CharTokenizer, vector: torch.Tensor) -> list[dict]:
+    """1つの層のベクトルから、そのまま出力層に通した次の文字の予測上位を返す（logit lens）。"""
+    with torch.no_grad():
+        logits = model.out_head(model.final_norm(vector))
+    probs = torch.softmax(logits, dim=-1)
+    top = torch.topk(probs, TOP_K)
+    predictions: list[dict] = []
+    for k in range(TOP_K):
+        predictions.append({
+            "token": display_token(tokenizer, top.indices[k].item()),
+            "prob": round(top.values[k].item(), 4),
+        })
+    return predictions
+
+
+def find_neighbors(
+    tokenizer: CharTokenizer,
+    corpus_token_ids: list[int],
+    normalized_corpus: torch.Tensor,
+    vector: torch.Tensor,
+) -> list[dict]:
+    """コーパスの中から、コサイン類似度が高い文脈を前後の文字つきで返す。"""
+    similarities = normalized_corpus @ (vector / vector.norm())
+    top = torch.topk(similarities, TOP_K)
+    neighbors: list[dict] = []
+    for k in range(TOP_K):
+        position = top.indices[k].item()
+        before = ""
+        for token_id in corpus_token_ids[max(0, position - 10):position]:
+            before += display_token(tokenizer, token_id)
+        after = ""
+        for token_id in corpus_token_ids[position + 1:position + 4]:
+            after += display_token(tokenizer, token_id)
+        neighbors.append({
+            "similarity": round(top.values[k].item(), 4),
+            "before": before,
+            "token": display_token(tokenizer, corpus_token_ids[position]),
+            "after": after,
+        })
+    return neighbors
+
+
+def build_hidden_state_tables(
     model: nn.Module,
     tokenizer: CharTokenizer,
     texts: list[str],
     target_positions: list[int],
+    corpus_token_ids: list[int],
+    context_length: int,
 ) -> dict:
-    """対象tokenの各層のベクトルと、文どうしのコサイン類似度をまとめる。
+    """対象位置・文・層ごとに、次の文字の予測上位（logit lens）と近い文脈の上位をまとめる。
 
-    sentences[s]["targets"][t]["layers"][l] が、文 s の t 番目の対象位置の Layer l。
-    similarities[t][l] は同じ対象位置・同じ層での文どうしの類似度行列
+    予測は各層のベクトルをfinal_norm→out_head→softmaxに通した確率の上位。
+    近い文脈は、corpus_token_idsから作ったコーパスとのコサイン類似度の上位
     """
-    sentences: list[dict] = []
+    corpus_tokens, normalized_corpus_by_layer = collect_neighbor_corpus(
+        model, corpus_token_ids[:NEIGHBOR_CORPUS_TOKENS], context_length
+    )
+
+    hidden_states_by_text: list[list[torch.Tensor]] = []
     for text in texts:
         token_ids = tokenizer.encode(text)
         if tokenizer.unk_id in token_ids:
             raise ValueError(f"語彙にない文字を含む: {text}")
-        hidden_states = collect_hidden_states(model, token_ids)
+        # 対象位置ごとに forward し直すと無駄なので、文ごとに1回だけ通す
+        hidden_states_by_text.append(collect_hidden_states(model, token_ids))
 
-        targets: list[dict] = []
-        for position in target_positions:
+    num_layers = len(hidden_states_by_text[0])
+
+    targets: list[dict] = []
+    for position in target_positions:
+        sentences: list[dict] = []
+        vectors_by_sentence: list[torch.Tensor] = []
+        for s in range(len(texts)):
+            layer_vectors: list[torch.Tensor] = []
+            for layer_states in hidden_states_by_text[s]:
+                layer_vectors.append(layer_states[position])
+            vectors_by_sentence.append(torch.stack(layer_vectors))
+
             layers: list[dict] = []
-            for layer_vectors in hidden_states:
-                vector: list[float] = []
-                for value in layer_vectors[position].tolist():
-                    vector.append(round(value, 4))
+            for layer in range(num_layers):
+                vector = layer_vectors[layer]
                 layers.append({
-                    "norm": round(layer_vectors[position].norm().item(), 4),
-                    "vector": vector,
+                    "predictions": predict_next_char(model, tokenizer, vector),
+                    "neighbors": find_neighbors(
+                        tokenizer, corpus_tokens, normalized_corpus_by_layer[layer], vector
+                    ),
                 })
-            targets.append({
-                "position": position,
-                "token": tokenizer.int_to_str[token_ids[position]],
+            sentence_text = texts[s]
+            sentences.append({
+                "text": sentence_text,
+                "next_char": sentence_text[position + 1],
                 "layers": layers,
             })
-        sentences.append({"text": text, "targets": targets})
 
-    # 対象位置の文字が全文で同じでなければ、文脈の違いだけを見る前提が崩れる
-    for target_index in range(len(target_positions)):
-        first_token = sentences[0]["targets"][target_index]["token"]
-        for sentence in sentences:
-            if sentence["targets"][target_index]["token"] != first_token:
-                raise ValueError(f"位置 {target_positions[target_index]} の文字が文によって違う")
-
-    num_layers = len(sentences[0]["targets"][0]["layers"])
-    similarities: list[list[list[list[float]]]] = []
-    for target_index in range(len(target_positions)):
-        per_layer: list[list[list[float]]] = []
+        # [文, 層, D] にまとめ、層ごとに文どうしのコサイン類似度を求める
+        vectors = torch.stack(vectors_by_sentence)
+        similarities: list[list[list[float]]] = []
         for layer in range(num_layers):
-            matrix: list[list[float]] = []
-            for a in sentences:
-                row: list[float] = []
-                vector_a = torch.tensor(a["targets"][target_index]["layers"][layer]["vector"])
-                for b in sentences:
-                    vector_b = torch.tensor(b["targets"][target_index]["layers"][layer]["vector"])
-                    row.append(round(cosine_similarity(vector_a, vector_b), 4))
-                matrix.append(row)
-            per_layer.append(matrix)
-        similarities.append(per_layer)
+            similarities.append(similarity_matrix(vectors[:, layer]))
+
+        targets.append({
+            "position": position,
+            "token": target_token(texts, position),
+            "sentences": sentences,
+            "similarities": similarities,
+        })
 
     return {
-        "target_positions": target_positions,
         "num_layers": num_layers,
-        "sentences": sentences,
-        "similarities": similarities,
+        "top_k": TOP_K,
+        "corpus": {"num_tokens": len(corpus_tokens)},
+        "targets": targets,
     }
 
 
-def save_embedding_map_html(data: dict, template_path: Path, output_path: Path) -> None:
+# ---- HTMLへの埋め込み ----
+
+DATA_PLACEHOLDER = "/*__DATA__*/null"
+
+
+def save_html(data: dict, template_path: Path, output_path: Path) -> None:
     """テンプレートHTMLにデータを埋め込み、ブラウザで開くだけで見られる1ファイルにする。"""
     template = template_path.read_text(encoding="utf-8")
     # </script> が文字列中に現れるとHTMLが壊れるので、< をエスケープしておく

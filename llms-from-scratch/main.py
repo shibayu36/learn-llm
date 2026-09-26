@@ -14,11 +14,7 @@ from gpt import OneLayerOneHeadGPT
 from plot import save_loss_plot
 from tokenizer import CharTokenizer
 from train import train_model
-from visualize import (
-    build_embedding_map,
-    build_hidden_state_trajectories,
-    save_embedding_map_html,
-)
+from visualize import build_embedding_map, build_hidden_state_tables, save_html
 
 DATA_DIR = Path("data/fineweb-japanese-10k")
 PROMPTS_PATH = Path(__file__).parent / "data/evaluation-prompts.json"
@@ -185,38 +181,37 @@ def run_visualize_embeddings(run_name: str) -> None:
         json.dumps(data, ensure_ascii=False, allow_nan=False) + "\n", encoding="utf-8"
     )
     html_path = run_dir / "embedding_map.html"
-    save_embedding_map_html(data, TEMPLATES_DIR / "embedding_map.html", html_path)
+    save_html(data, TEMPLATES_DIR / "embedding_map.html", html_path)
     print("ブラウザで開く:", html_path)
 
 
 def run_visualize_hidden_states(run_name: str) -> None:
     run_dir = RUNS_DIR / run_name
-    model, _config, tokenizer = load_run(run_dir)
+    model, config, tokenizer = load_run(run_dir)
     inputs = json.loads(HIDDEN_STATE_SENTENCES_PATH.read_text(encoding="utf-8"))
+    validation_texts = load_texts(DATA_DIR / "validation.jsonl")
+    validation_ids = join_texts_with_eos(validation_texts, tokenizer)
 
-    data = build_hidden_state_trajectories(
-        model, tokenizer, inputs["sentences"], inputs["target_positions"]
+    data = build_hidden_state_tables(
+        model, tokenizer, inputs["sentences"], inputs["target_positions"],
+        validation_ids, config.context_length,
     )
     data["run_name"] = run_name
     json_path = run_dir / "hidden_states.json"
     json_path.write_text(
         json.dumps(data, ensure_ascii=False, allow_nan=False) + "\n", encoding="utf-8"
     )
-
-    sentences = data["sentences"]
-    for target_index in range(len(data["target_positions"])):
-        position = data["target_positions"][target_index]
-        token = sentences[0]["targets"][target_index]["token"]
-        print(f"=== 位置 {position}「{token}」 ===")
-        for layer in range(data["num_layers"]):
-            print(f"[Layer {layer}]")
-            for sentence_index in range(len(sentences)):
-                sentence = sentences[sentence_index]
-                norm = sentence["targets"][target_index]["layers"][layer]["norm"]
-                row = data["similarities"][target_index][layer][sentence_index]
-                row_text = " ".join(f"{value:6.3f}" for value in row)
-                print(f"  {sentence['text'][:8]}  norm {norm:6.3f}  cos {row_text}")
-    print("保存先:", json_path)
+    for target in data["targets"]:
+        for sentence in target["sentences"]:
+            last_layer_predictions = sentence["layers"][-1]["predictions"]
+            top5 = ""
+            for prediction in last_layer_predictions[:5]:
+                top5 += f" {prediction['token']}({prediction['prob']:.2f})"
+            prefix = sentence["text"][:target["position"] + 1]
+            print(f"位置 {target['position']}「{target['token']}」 {prefix} →{top5}")
+    html_path = run_dir / "hidden_states.html"
+    save_html(data, TEMPLATES_DIR / "hidden_states.html", html_path)
+    print("ブラウザで開く:", html_path)
 
 
 def main() -> None:
