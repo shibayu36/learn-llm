@@ -85,10 +85,12 @@ llms-from-scratch/
   tokenizer.py     文字Tokenizer（Stage 1）
   dataset.py       GPTDataset + DataLoader（Stage 1）
   generate.py      generate（temperature付き。Stage 2）
-  train.py         損失・評価・訓練ループ・保存（Stage 2〜3）
+  train.py         損失・評価・訓練ループ（Stage 2〜3）
+  checkpoint.py    学習結果の保存と読み込み（Stage 3）
   main.py          入口。`train` と `generate` のサブコマンドを持つ
   experiments/     層数・ヘッド数の比較スクリプト（Stage 4〜）
-  runs/            実行結果（model.pt、config.json、vocab.json、metrics.json、loss.png）
+  runs/            実行結果（model.pt、config.json、vocab.json、metrics.json、loss.png）。commitしない。残したい結果は progress.md に書く
+  docs/            用語集など学習用の資料
   data/            固定した日本語データ
   prepare_data.py  データ取得
 ```

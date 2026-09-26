@@ -4,10 +4,13 @@
 
 ## 現在の作業
 
-Stage 3（1層1ヘッドの学習）の段階1「訓練ループと定期評価」まで完了。次は段階2「保存・読み込みと `generate` サブコマンド」。
+Stage 3（1層1ヘッドの学習）の段階2「保存・読み込みと `generate` サブコマンド」まで完了（動作確認済み、2026-09-26）。次は段階3「基準の記録（`metrics.json`）と `steps` の見直し」。
 
-- Stage 3段階1までのコードと記録はcommit済み
-- `main.py` は `train` サブコマンドだけ持つ。段階2で `generate` と `--run-name` を足す
+- Stage 3段階2までのコードと記録はcommit済み
+- `runs/` はディレクトリごとcommitしない。model.pt を入れないなら config.json や metrics.json だけ残しても再現できないため。残したい数値や生成結果は progress.md に書く
+- `load_run` は復元だけを行い、`model.eval()` は生成する側（`main.py` の `run_generate`）で呼ぶ。読み込んだモデルを何に使うかは呼び出し側が決めることなので
+- `generate.py` のロジットの説明は、学習後のモデルに「日本の首都は」を入れて観察した実値の表にした。観察に使ったスクリプトは `tmp/show_logits.py`（commitしない）
+- 保存・読み込みは `train.py` ではなく `checkpoint.py` に分けた。`generate` が `train.py` を読み込むと「生成に訓練が要る」ように見えるため
 - 用語集 `docs/glossary.md` を作った。新しい用語が出る節では追記する
 - optimizerは本と同じく `train_model` の外で作って渡す形のままにする。モデルとoptimizerは `.grad` を通して暗黙につながるので、optimizerは必ずそのモデルの `parameters()` で作る。Stage 6でスケジューラやパラメータのグループ分けを入れるときも外で作る
 
@@ -39,8 +42,8 @@ Stage 3（1層1ヘッドの学習）の段階1「訓練ループと定期評価�
 ## Stage 3：1層1ヘッドの学習
 
 - [x] 訓練ループ・定期評価・学習中の生成サンプル（`train.py` の `calc_loss_loader`・`evaluate_model`・`generate_and_print_sample`・`train_model`、2026-09-25）
-- [ ] モデル・Config・語彙の保存と読み込み（`runs/l1h1/` に model.pt・config.json・vocab.json。config.jsonにはモデルのクラス名も入れる）
-- [ ] `main.py` の `train` / `generate` サブコマンド（`train` は済み。`generate` と `--run-name` が未）
+- [x] モデル・Config・語彙の保存と読み込み（`checkpoint.py` の `save_run`・`load_run`。`runs/l1h1/` に model.pt・config.json・vocab.json。config.jsonにはモデルのクラス名 `OneLayerOneHeadGPT` も入る、2026-09-26）
+- [x] `main.py` の `train` / `generate` サブコマンドと `--run-name`（2026-09-26）
 - [ ] 基準の記録（`runs/l1h1/metrics.json`）：パラメータ数・loss曲線・学習前後の生成・所要時間
 - [ ] 所要時間を見て `steps` を見直す
 
@@ -120,3 +123,12 @@ Stage 3（1層1ヘッドの学習）の段階1「訓練ループと定期評価�
   - step 1000: `、そのできることが、そのです。 そのできる。`（助詞と文末はそれらしいが、内容語が出ない）
   - step 1200〜2000: `、そのできるのです。 -  - 2000000000000…`（「0」の繰り返しに落ちる。greedyで一度「0」の次は「0」が最大になると抜けられない）
 - 観察: 1層1ヘッドのgreedyでは、語句の切れ目と文末の形は覚えるが、話題を保った文章にはならない。「東京」は出ない。samplingでどうなるかは段階3の固定promptで見る
+
+### Stage 3：保存と `generate` サブコマンド（2026-09-26）
+
+- `uv run main.py train` を再実行すると、lossの推移も学習中の生成も前回（2026-09-25）と1文字違わず同じだった。seed固定でDataLoaderの順番とモデルの初期値が決まるので、同じコードなら同じ結果になる
+- `runs/l1h1/` に3ファイル。`model.pt` は2.59MB（パラメータ580,800個 × float32の4バイト = 2.32MB に、名前などの情報が乗る）、`vocab.json` は28KB、`config.json` は221バイト
+- `uv run main.py generate "日本の首都は"` の結果
+  - T=0：`、そのできるのです。 -  - 1900000000000000000000000010001000`。2回とも同じで、学習の最後（step 2000）の表示とも同じ。保存→読み込みでモデルが変わっていないことの確認になる
+  - T=0.8：`2005196ノース団ル事にようとが行っていたよりでしても問題 15.....月代としていといる。`、`言うこの制動を生われる。 といんだ度団体は、このはみな、最気いよりします。 大職や資ばなど配の記来の`。2回とも違う
+- 観察: samplingにすると、greedyで落ち込んでいた「0」の繰り返しから抜け、「団体」「問題」「制動」など2文字の単語が現れる。一方で「生われる」「最気」のように、単語の途中で別の文字につながる箇所も多い。1文字1tokenなので、単語のつながりは2〜3文字先まで覚えられているが、文の意味は保てていない

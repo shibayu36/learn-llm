@@ -19,3 +19,32 @@ class Config:
         self.eval_batches: int = 8
         # 乱数の種
         self.seed: int = 42
+
+    # 学習時の設定を config.json に保存・復元するため。読み込んだモデルは学習時と
+    # 同じ設定で組み立てる必要がある
+    def to_dict(self) -> dict:
+        return {
+            "d_model": self.d_model,
+            "context_length": self.context_length,
+            "batch_size": self.batch_size,
+            "steps": self.steps,
+            "learning_rate": self.learning_rate,
+            "weight_decay": self.weight_decay,
+            "eval_every": self.eval_every,
+            "eval_batches": self.eval_batches,
+            "seed": self.seed,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Config":
+        config = cls()
+        config.d_model = data["d_model"]
+        config.context_length = data["context_length"]
+        config.batch_size = data["batch_size"]
+        config.steps = data["steps"]
+        config.learning_rate = data["learning_rate"]
+        config.weight_decay = data["weight_decay"]
+        config.eval_every = data["eval_every"]
+        config.eval_batches = data["eval_batches"]
+        config.seed = data["seed"]
+        return config

@@ -221,3 +221,6 @@ tmp/
 
 # 書籍のPDF
 *.pdf
+
+# 学習の実行結果。結果はprogress.mdに記録する
+llms-from-scratch/runs/
