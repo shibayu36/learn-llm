@@ -372,7 +372,7 @@ function buildTargetSection(target, topK) {
   simHeadRow.appendChild(document.createElement("th"));
   sentences.forEach((sentence) => {
     const th = document.createElement("th");
-    th.textContent = sentence.text.slice(0, 8);
+    th.textContent = sentence.text.slice(0, target.position + 1);
     simHeadRow.appendChild(th);
   });
   simHead.appendChild(simHeadRow);
@@ -383,7 +383,7 @@ function buildTargetSection(target, topK) {
   sentences.forEach((rowSentence, rowIndex) => {
     const tr = document.createElement("tr");
     const th = document.createElement("th");
-    th.textContent = rowSentence.text.slice(0, 8);
+    th.textContent = rowSentence.text.slice(0, target.position + 1);
     tr.appendChild(th);
 
     const rowCells = [];

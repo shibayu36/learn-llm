@@ -51,7 +51,7 @@ Stage 3（1層1ヘッドの学習）の学習履歴保存・学習後評価・lo
 - [x] 所要時間を見て `steps` を見直す（5,000step・学習率1e-3を新しい基準にした、2026-09-26）
 - [x] `d_model` だけ64から128に増やし、全バッチloss・固定20出力・学習時間を比較する。batch sizeは16のまま（2026-09-26）
 - [x] Token embeddingの地図（`visualize.py`・`main.py visualize-embeddings`・`templates/embedding_map.html`）。結果は `visualization-results.md`（2026-09-26）
-- [ ] Hidden stateの軌跡（`visualization-plan.md` の2）
+- [x] Hidden stateの変化（`visualize.py` の `build_hidden_state_tables`・`main.py visualize-hidden-states`・`templates/hidden_states.html`）。結果は `visualization-results.md`（2026-09-26）
 
 ## Stage 4：複数層
 
@@ -172,3 +172,14 @@ Stage 3（1層1ヘッドの学習）の学習履歴保存・学習後評価・lo
 - HTMLは `templates/embedding_map.html` をテンプレートとしてcommitし、Pythonがデータを埋め込んで `runs/<run>/embedding_map.html` に書く。検証はヘッドレスChromeのスクショ・console・iframe操作テストで行った
 - PCAの図では近傍が隣に来ないので、umap-learn 0.5.12を足してUMAP（metric cosine）に切り替えられるようにした。設定は「コサイン上位10の文字が図の最近傍10に入る個数」の全文字平均で選び、n_neighbors 5・min_dist 0にした（既定の15・0.1で1.4個、採用値で2.2個。偶然なら0.06個、PCAの図では0.19個）
 - UMAPは全体の一致数がseedで安定する一方、特定の組が図で何番目に近いかはseedで大きく変わる（高→低が603位・5位・5位）。図の隣接だけで「近い」と言わず、近傍一覧の類似度で確かめる
+
+### Stage 3：Hidden stateの変化（2026-09-26）
+
+`l1h1-s5000-lr1e-3` で、前文の違う6文の「行」（位置9）と「の」（位置10）について、Layer 0とLayer 1のhidden stateを `register_forward_hook` で取り出し、層ごとの「次の文字の予測（logit lens）」と「validation先頭4万位置の中で近い文脈」の表をHTMLにした。数値と観察は `visualization-results.md`。
+
+- 最初はPCAで各層の点を結ぶ軌跡図にしたが、「ブロックを通ると文脈で変わる」以上のことが読めずやめた。方針変更の理由は `visualization-plan.md`
+- hidden stateを `final_norm` → `out_head` に通すと途中の層でも次の文字の予測として読める。近い文脈は、同じ層のvalidationのベクトルとのコサイン類似度で、embedding地図の近傍一覧の文脈版にあたる
+- 「行」はLayer 1で、銀行・旅行のあとは動詞の行（行う・行った）の仲間、実行・発行のあとは熟語の行（銀行・非行・先行）の仲間になった。前文と直前の単語を入れ替えた文を足すと両方が効いており、直前の1文字の方が動かす量は大きかった
+- 「の」は6文とも予測が平坦（最大0.02）で近傍も名詞に続く「の」ばかりになり、文脈でほとんど変わらない
+- 予測上位に前文の末尾の文字（楽しもう→う、受領した→し）が入る。ヘッドが前の文字を写している可能性があり、Attentionの重みを見るときに確かめる
+- 特殊トークンは `<|endoftext|>` を「␃」、改行を「␤」、`<|unk|>` を「�」の1文字にして、前後の文字を切り出す添字がずれないようにした
