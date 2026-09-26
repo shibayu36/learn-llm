@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Hidden Stateの観察</title>
+<style>
+  :root {
+    --surface-1: #fcfcfb;
+    --page: #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --grid: #e1e0d9;
+    --border: rgba(11, 11, 11, 0.10);
+    --mark-bg: #fde7b8;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    font-family: "Hiragino Sans", system-ui, sans-serif;
+    color: var(--text-primary);
+    background: var(--page);
+  }
+
+  .app {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 24px 24px 48px;
+  }
+
+  h1 { font-size: 20px; margin: 0 0 12px; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  h3 { font-size: 13px; color: var(--text-secondary); margin: 0 0 8px; }
+
+  .intro p {
+    margin: 0 0 12px;
+    line-height: 1.8;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  .intro { margin-bottom: 20px; }
+
+  .run-name { color: var(--text-secondary); font-size: 13px; margin-bottom: 20px; }
+  .run-name strong { color: var(--text-primary); }
+
+  section.controls { margin-bottom: 20px; }
+
+  .layer-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+  .layer-btn {
+    padding: 6px 14px;
+    font-family: inherit;
+    font-size: 13px;
+    color: var(--text-primary);
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .layer-btn:hover { background: var(--grid); }
+  .layer-btn.active {
+    background: var(--text-primary);
+    color: #fff;
+    border-color: var(--text-primary);
+  }
+
+  .target-section {
+    padding: 20px;
+    margin-bottom: 28px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+
+  .table-block { margin-bottom: 22px; }
+  .table-block:last-child { margin-bottom: 0; }
+
+  table {
+    border-collapse: collapse;
+    font-family: inherit;
+  }
+  th, td {
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--grid);
+  }
+  th {
+    color: var(--text-secondary);
+    font-weight: 600;
+    font-size: 11px;
+    text-align: center;
+  }
+
+  mark {
+    background: var(--mark-bg);
+    padding: 0 2px;
+    border-radius: 2px;
+    font-weight: 700;
+    color: inherit;
+  }
+
+  /* 表A: 次の文字の予測 */
+  table.pred-table { width: 100%; font-size: 11px; table-layout: auto; }
+  table.pred-table td { text-align: center; vertical-align: middle; }
+  table.pred-table td.context-cell, table.pred-table th.context-head {
+    text-align: left;
+  }
+  .pred-cell { display: flex; flex-direction: column; align-items: center; line-height: 1.3; }
+  .pred-char { font-size: 12px; font-weight: 700; }
+  .pred-prob { font-size: 10px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+
+  /* 表B: 近い文脈 */
+  table.neighbor-table { width: 100%; font-size: 12px; table-layout: auto; }
+  table.neighbor-table td.context-cell {
+    text-align: left;
+    vertical-align: top;
+    width: 26%;
+  }
+  table.neighbor-table td.neighbor-cell {
+    text-align: left;
+    vertical-align: top;
+  }
+  .neighbor-list { display: flex; flex-direction: column; gap: 2px; }
+  .neighbor-line { display: flex; gap: 8px; font-size: 11px; line-height: 1.7; }
+  .neighbor-sim {
+    flex: 0 0 3.6em;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+  }
+  .neighbor-context {
+    font-family: "SFMono-Regular", Consolas, "Courier New", monospace;
+    white-space: pre;
+  }
+
+  /* 表C: 文どうしのコサイン類似度 */
+  table.sim-table { font-size: 12px; }
+  table.sim-table th, table.sim-table td {
+    text-align: right;
+    padding: 4px 10px;
+  }
+  table.sim-table th:first-child, table.sim-table td:first-child {
+    text-align: left;
+  }
+  table.sim-table td.diag {
+    color: var(--text-muted);
+    background: var(--page);
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>Hidden Stateの観察</h1>
+
+  <div class="intro" id="intro"></div>
+
+  <div class="run-name">run: <strong id="runName"></strong></div>
+
+  <section class="controls">
+    <h2>層を選択</h2>
+    <div id="layerButtons" class="layer-buttons"></div>
+  </section>
+
+  <div id="targets"></div>
+</div>
+
+<script>
+const DATA = /*__DATA__*/null;
+
+// ---- 導入文 ----
+// corpus.num_tokens は実行のたびに変わるため、文中に埋め込む
+function renderIntro() {
+  const introEl = document.getElementById("intro");
+  const numTokens = DATA.corpus.num_tokens.toLocaleString();
+
+  const p1 = document.createElement("p");
+  p1.textContent =
+    "この表は、同じ文字（例えば「行」）が、前にある文脈によってモデルの中でどう読まれ、" +
+    "何と同じ扱いになるかを確かめるためのもの。対象の位置ごとに文脈の異なる複数の文を用意し、" +
+    "その位置のhidden state（各層の出力ベクトル）を2つの方法で読む。";
+
+  const p2 = document.createElement("p");
+  p2.appendChild(document.createTextNode(
+    "「次の文字の予測」は、その層のベクトルをそのまま出力層（final_norm → out_head）に通したときの予測上位10件（logit lensという方法）。" +
+    "最終層以外では、途中経過のベクトルを無理やり最終出力の形式で読んでいるだけなので、参考程度に見ること。" +
+    "「近い文脈」は、validationデータの先頭"
+  ));
+  const strong = document.createElement("strong");
+  strong.textContent = numTokens;
+  p2.appendChild(strong);
+  p2.appendChild(document.createTextNode(
+    " tokenについて同じ層のベクトルを求め、対象ベクトルとコサイン類似度が高い位置を前後の文字つきで並べたもの。" +
+    "近いのは同じ層のベクトルであって、並ぶ文字が対象と同じ文字とは限らない。"
+  ));
+
+  const p3 = document.createElement("p");
+  p3.textContent =
+    "Layer 0はtoken embeddingとposition embeddingを足しただけの入力なので、どの文でも同じベクトルになり、" +
+    "次の文字の予測も近い文脈もどの文で見ても同じになる。層を進めると、文脈の違いによる差が表れてくる。" +
+    "表中の␃は文書の区切り（<|endoftext|>）、␤は改行、�は語彙にない文字を表す記号。";
+
+  introEl.appendChild(p1);
+  introEl.appendChild(p2);
+  introEl.appendChild(p3);
+}
+renderIntro();
+
+// ---- 共通の部品 ----
+
+// 文の対象位置までを表示する断片。対象文字自体は <mark> で強調する
+function buildContextFragment(text, position) {
+  const frag = document.createDocumentFragment();
+  frag.appendChild(document.createTextNode(text.slice(0, position)));
+  const mark = document.createElement("mark");
+  mark.textContent = text[position];
+  frag.appendChild(mark);
+  return frag;
+}
+
+function buildContextCell(text, position) {
+  const td = document.createElement("td");
+  td.className = "context-cell";
+  td.appendChild(buildContextFragment(text, position));
+  return td;
+}
+
+// before は先頭を半角空白で埋めて10文字ぶんの右寄せにする（等幅フォントで揃えるため）
+function buildNeighborLine(neighbor) {
+  const line = document.createElement("div");
+  line.className = "neighbor-line";
+
+  const sim = document.createElement("span");
+  sim.className = "neighbor-sim";
+  sim.textContent = neighbor.similarity.toFixed(3);
+
+  const context = document.createElement("span");
+  context.className = "neighbor-context";
+  context.appendChild(document.createTextNode(neighbor.before.padStart(10, " ")));
+  const mark = document.createElement("mark");
+  mark.textContent = neighbor.token;
+  context.appendChild(mark);
+  context.appendChild(document.createTextNode(neighbor.after));
+
+  line.appendChild(sim);
+  line.appendChild(context);
+  return line;
+}
+
+// ---- 対象位置ごとのセクションを組み立てる ----
+// 層を切り替えても文の並びや文脈表示は変わらないため、静的な部分は一度だけ作り、
+// 予測・近傍・類似度だけを update(layer) で差し替える
+function buildTargetSection(target, topK) {
+  const sentences = target.sentences;
+
+  const section = document.createElement("section");
+  section.className = "target-section";
+
+  const heading = document.createElement("h2");
+  heading.textContent = "位置 " + target.position + " の「" + target.token + "」";
+  section.appendChild(heading);
+
+  // 表A: 次の文字の予測
+  const predBlock = document.createElement("div");
+  predBlock.className = "table-block";
+  const predHeading = document.createElement("h3");
+  predHeading.textContent = "次の文字の予測";
+  predBlock.appendChild(predHeading);
+
+  const predTable = document.createElement("table");
+  predTable.className = "pred-table";
+  const predThead = document.createElement("thead");
+  const predHeadRow = document.createElement("tr");
+  const contextHead = document.createElement("th");
+  contextHead.className = "context-head";
+  contextHead.textContent = "文";
+  predHeadRow.appendChild(contextHead);
+  const nextHead = document.createElement("th");
+  nextHead.textContent = "実際の次の文字";
+  predHeadRow.appendChild(nextHead);
+  for (let rank = 0; rank < topK; rank++) {
+    const th = document.createElement("th");
+    th.textContent = (rank + 1) + "位";
+    predHeadRow.appendChild(th);
+  }
+  predThead.appendChild(predHeadRow);
+  predTable.appendChild(predThead);
+
+  const predBody = document.createElement("tbody");
+  const predCells = []; // predCells[sentenceIndex][rank] = { charEl, probEl }
+  sentences.forEach((sentence) => {
+    const tr = document.createElement("tr");
+    tr.appendChild(buildContextCell(sentence.text, target.position));
+
+    const tdNext = document.createElement("td");
+    tdNext.textContent = sentence.next_char;
+    tr.appendChild(tdNext);
+
+    const cellsForSentence = [];
+    for (let rank = 0; rank < topK; rank++) {
+      const td = document.createElement("td");
+      const cell = document.createElement("div");
+      cell.className = "pred-cell";
+      const charEl = document.createElement("span");
+      charEl.className = "pred-char";
+      const probEl = document.createElement("span");
+      probEl.className = "pred-prob";
+      cell.appendChild(charEl);
+      cell.appendChild(probEl);
+      td.appendChild(cell);
+      tr.appendChild(td);
+      cellsForSentence.push({ charEl, probEl });
+    }
+    predCells.push(cellsForSentence);
+    predBody.appendChild(tr);
+  });
+  predTable.appendChild(predBody);
+  predBlock.appendChild(predTable);
+  section.appendChild(predBlock);
+
+  // 表B: 近い文脈
+  const neighborBlock = document.createElement("div");
+  neighborBlock.className = "table-block";
+  const neighborHeading = document.createElement("h3");
+  neighborHeading.textContent = "近い文脈";
+  neighborBlock.appendChild(neighborHeading);
+
+  const neighborTable = document.createElement("table");
+  neighborTable.className = "neighbor-table";
+  const neighborThead = document.createElement("thead");
+  const neighborHeadRow = document.createElement("tr");
+  const neighborContextHead = document.createElement("th");
+  neighborContextHead.className = "context-head";
+  neighborContextHead.textContent = "文";
+  neighborHeadRow.appendChild(neighborContextHead);
+  const neighborListHead = document.createElement("th");
+  neighborListHead.textContent = "近い文脈（コサイン類似度が高い順）";
+  neighborHeadRow.appendChild(neighborListHead);
+  neighborThead.appendChild(neighborHeadRow);
+  neighborTable.appendChild(neighborThead);
+
+  const neighborBody = document.createElement("tbody");
+  const neighborContainers = []; // neighborContainers[sentenceIndex] = div.neighbor-list
+  sentences.forEach((sentence) => {
+    const tr = document.createElement("tr");
+    tr.appendChild(buildContextCell(sentence.text, target.position));
+
+    const tdNeighbors = document.createElement("td");
+    tdNeighbors.className = "neighbor-cell";
+    const list = document.createElement("div");
+    list.className = "neighbor-list";
+    tdNeighbors.appendChild(list);
+    tr.appendChild(tdNeighbors);
+
+    neighborContainers.push(list);
+    neighborBody.appendChild(tr);
+  });
+  neighborTable.appendChild(neighborBody);
+  neighborBlock.appendChild(neighborTable);
+  section.appendChild(neighborBlock);
+
+  // 表C: 文どうしのコサイン類似度
+  const simBlock = document.createElement("div");
+  simBlock.className = "table-block";
+  const simHeading = document.createElement("h3");
+  simHeading.textContent = "文どうしのコサイン類似度";
+  simBlock.appendChild(simHeading);
+
+  const simTable = document.createElement("table");
+  simTable.className = "sim-table";
+  const simHead = document.createElement("thead");
+  const simHeadRow = document.createElement("tr");
+  simHeadRow.appendChild(document.createElement("th"));
+  sentences.forEach((sentence) => {
+    const th = document.createElement("th");
+    th.textContent = sentence.text.slice(0, 8);
+    simHeadRow.appendChild(th);
+  });
+  simHead.appendChild(simHeadRow);
+  simTable.appendChild(simHead);
+
+  const simBody = document.createElement("tbody");
+  const simCells = []; // simCells[row][col]
+  sentences.forEach((rowSentence, rowIndex) => {
+    const tr = document.createElement("tr");
+    const th = document.createElement("th");
+    th.textContent = rowSentence.text.slice(0, 8);
+    tr.appendChild(th);
+
+    const rowCells = [];
+    sentences.forEach((_, colIndex) => {
+      const td = document.createElement("td");
+      td.className = rowIndex === colIndex ? "diag" : "";
+      tr.appendChild(td);
+      rowCells.push(td);
+    });
+    simCells.push(rowCells);
+    simBody.appendChild(tr);
+  });
+  simTable.appendChild(simBody);
+  simBlock.appendChild(simTable);
+  section.appendChild(simBlock);
+
+  function update(layer) {
+    sentences.forEach((sentence, si) => {
+      const layerData = sentence.layers[layer];
+      layerData.predictions.forEach((prediction, rank) => {
+        predCells[si][rank].charEl.textContent = prediction.token;
+        predCells[si][rank].probEl.textContent = prediction.prob.toFixed(2);
+      });
+
+      neighborContainers[si].replaceChildren();
+      layerData.neighbors.forEach((neighbor) => {
+        neighborContainers[si].appendChild(buildNeighborLine(neighbor));
+      });
+    });
+
+    const matrix = target.similarities[layer];
+    sentences.forEach((_, rowIndex) => {
+      sentences.forEach((_, colIndex) => {
+        simCells[rowIndex][colIndex].textContent = matrix[rowIndex][colIndex].toFixed(3);
+      });
+    });
+  }
+
+  return { section, update };
+}
+
+// ---- 組み立て ----
+document.getElementById("runName").textContent = DATA.run_name;
+
+const layerButtonsEl = document.getElementById("layerButtons");
+const targetsEl = document.getElementById("targets");
+
+const state = { selectedLayer: DATA.num_layers - 1 };
+
+const targetViews = DATA.targets.map((target) => buildTargetSection(target, DATA.top_k));
+targetViews.forEach((view) => targetsEl.appendChild(view.section));
+
+function updateAll() {
+  targetViews.forEach((view) => view.update(state.selectedLayer));
+  Array.from(layerButtonsEl.children).forEach((btn, i) => {
+    btn.classList.toggle("active", i === state.selectedLayer);
+  });
+}
+
+for (let layer = 0; layer < DATA.num_layers; layer++) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "layer-btn";
+  btn.textContent = "Layer " + layer;
+  btn.addEventListener("click", () => {
+    state.selectedLayer = layer;
+    updateAll();
+  });
+  layerButtonsEl.appendChild(btn);
+}
+
+updateAll();
+</script>
+</body>
+</html>
