@@ -14,10 +14,12 @@ from gpt import OneLayerOneHeadGPT
 from plot import save_loss_plot
 from tokenizer import CharTokenizer
 from train import train_model
+from visualize import build_embedding_map, save_embedding_map_html
 
 DATA_DIR = Path("data/fineweb-japanese-10k")
 PROMPTS_PATH = Path(__file__).parent / "data/evaluation-prompts.json"
 RUNS_DIR = Path("runs")
+TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 
 def run_train(config: Config, run_name: str) -> None:
@@ -165,6 +167,23 @@ def run_evaluate(run_name: str) -> None:
     print("保存先:", metrics_path)
 
 
+def run_visualize_embeddings(run_name: str) -> None:
+    run_dir = RUNS_DIR / run_name
+    model, config, tokenizer = load_run(run_dir)
+    train_texts = load_texts(DATA_DIR / "train.jsonl")
+    train_ids = join_texts_with_eos(train_texts, tokenizer)
+
+    data = build_embedding_map(model, tokenizer, train_ids, seed=config.seed)
+    data["run_name"] = run_name
+    json_path = run_dir / "embedding_map.json"
+    json_path.write_text(
+        json.dumps(data, ensure_ascii=False, allow_nan=False) + "\n", encoding="utf-8"
+    )
+    html_path = run_dir / "embedding_map.html"
+    save_embedding_map_html(data, TEMPLATES_DIR / "embedding_map.html", html_path)
+    print("ブラウザで開く:", html_path)
+
+
 def main() -> None:
     # argparse はコマンドライン引数を解釈する標準ライブラリ。
     # `uv run main.py train` のように動詞で処理を切り替える
@@ -185,6 +204,9 @@ def main() -> None:
     evaluate_parser = subparsers.add_parser("evaluate")
     evaluate_parser.add_argument("--run-name", default="l1h1")
 
+    visualize_parser = subparsers.add_parser("visualize-embeddings")
+    visualize_parser.add_argument("--run-name", default="l1h1")
+
     args = parser.parse_args()
 
     if args.command == "train":
@@ -193,6 +215,8 @@ def main() -> None:
         run_generate(args.run_name, args.prompt, args.temperature, args.max_new_tokens)
     elif args.command == "evaluate":
         run_evaluate(args.run_name)
+    elif args.command == "visualize-embeddings":
+        run_visualize_embeddings(args.run_name)
 
 
 if __name__ == "__main__":

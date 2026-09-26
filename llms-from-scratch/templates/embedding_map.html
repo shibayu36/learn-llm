@@ -1,0 +1,1018 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Token Embedding Map</title>
+<style>
+  :root {
+    --surface-1: #fcfcfb;
+    --page: #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.10);
+    /* 文字種カテゴリ用の6色（dataviz skillのカテゴリカル配色から選択） */
+    --cat-hiragana: #2a78d6;
+    --cat-katakana: #eb6834;
+    --cat-kanji: #1baf7a;
+    --cat-digit: #e87ba4;
+    --cat-alpha: #4a3aa7;
+    --cat-symbol: #008300;
+    /* 検索グループ用のハイライト色（カテゴリカル配色の並び順を流用） */
+    --grp-1: #2a78d6;
+    --grp-2: #eb6834;
+    --grp-3: #1baf7a;
+    --grp-4: #e87ba4;
+    --grp-5: #4a3aa7;
+    --grp-6: #008300;
+    --grp-7: #eda100;
+    --grp-8: #e34948;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    font-family: "Hiragino Sans", system-ui, sans-serif;
+    color: var(--text-primary);
+    background: var(--page);
+  }
+
+  .app {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  .canvas-pane {
+    position: relative;
+    flex: 1 1 auto;
+    min-width: 0;
+    background: var(--surface-1);
+  }
+
+  #scatter {
+    display: block;
+    width: 100%;
+    height: 100%;
+    cursor: grab;
+  }
+  #scatter.dragging { cursor: grabbing; }
+
+  .reset-btn {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    padding: 6px 12px;
+    font-size: 13px;
+    font-family: inherit;
+    color: var(--text-primary);
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .reset-btn:hover { background: var(--grid); }
+
+  .tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: var(--text-primary);
+    color: #fff;
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transform: translate(-50%, -130%);
+    white-space: nowrap;
+    z-index: 5;
+  }
+
+  .panel {
+    flex: 0 0 360px;
+    width: 360px;
+    overflow-y: auto;
+    padding: 16px;
+    border-left: 1px solid var(--border);
+    background: var(--page);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  .panel h1 {
+    font-size: 15px;
+    margin: 0 0 8px;
+  }
+
+  .panel h2 {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin: 0 0 8px;
+    border-bottom: 1px solid var(--grid);
+    padding-bottom: 4px;
+  }
+
+  .panel-section {
+    margin-bottom: 20px;
+  }
+
+  .info-row {
+    display: flex;
+    justify-content: space-between;
+    color: var(--text-secondary);
+  }
+  .info-row strong { color: var(--text-primary); font-weight: 600; }
+
+  .note {
+    margin-top: 8px;
+    padding: 8px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
+
+  .control-row { margin-bottom: 12px; }
+  .control-row label {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--text-secondary);
+  }
+  .control-row input[type="range"] { width: 100%; }
+  .control-row select {
+    width: 100%;
+    padding: 4px;
+    font-family: inherit;
+    font-size: 13px;
+  }
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+
+  .shown-count { color: var(--text-secondary); font-size: 12px; }
+
+  .legend { display: flex; flex-direction: column; gap: 4px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-swatch {
+    width: 10px; height: 10px; border-radius: 50%;
+    border: 1px solid var(--border);
+    flex: none;
+  }
+
+  .seq-gradient-bar {
+    height: 12px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    margin-bottom: 4px;
+  }
+  .seq-labels { display: flex; justify-content: space-between; color: var(--text-secondary); font-size: 11px; }
+
+  input#searchInput {
+    width: 100%;
+    padding: 6px 8px;
+    font-family: inherit;
+    font-size: 13px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+
+  .search-group {
+    margin-top: 10px;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .search-group-title { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .search-group-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; border: 1px solid var(--border); }
+  .search-chars { display: flex; flex-wrap: wrap; gap: 6px; }
+  .char-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-1);
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .char-chip:hover { background: var(--grid); }
+  .char-chip .chip-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .char-chip.missing { color: var(--text-muted); font-style: italic; cursor: default; }
+  .char-chip.missing:hover { background: var(--surface-1); }
+
+  .sim-list { margin-top: 6px; font-size: 12px; }
+  .sim-row { display: flex; justify-content: space-between; padding: 1px 0; color: var(--text-secondary); }
+  .sim-row strong { color: var(--text-primary); font-weight: 600; }
+
+  table.neighbor-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    margin-top: 8px;
+  }
+  table.neighbor-table th {
+    text-align: left;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--grid);
+    padding: 3px 4px;
+  }
+  table.neighbor-table td {
+    padding: 3px 4px;
+    border-bottom: 1px solid var(--grid);
+  }
+  table.neighbor-table tbody tr { cursor: pointer; }
+  table.neighbor-table tbody tr:hover { background: var(--grid); }
+  table.neighbor-table td.num { font-variant-numeric: tabular-nums; text-align: right; }
+
+  .placeholder { color: var(--text-muted); }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="canvas-pane">
+    <canvas id="scatter"></canvas>
+    <div id="tooltip" class="tooltip" hidden></div>
+    <button id="resetBtn" class="reset-btn" type="button">表示をリセット</button>
+  </div>
+
+  <aside class="panel">
+    <section class="panel-section" id="infoSection">
+      <h1>Token Embedding Map</h1>
+      <div class="info-row"><span>run</span><strong id="infoRunName"></strong></div>
+      <div class="info-row"><span>d_model</span><strong id="infoDModel"></strong></div>
+      <div class="info-row"><span>vocab_size</span><strong id="infoVocabSize"></strong></div>
+      <div id="infoPcaBlock">
+        <div class="info-row"><span>第1主成分の寄与率</span><strong id="infoPc1"></strong></div>
+        <div class="info-row"><span>第2主成分の寄与率</span><strong id="infoPc2"></strong></div>
+        <div class="info-row"><span id="infoFitN"></span></div>
+      </div>
+      <div id="infoUmapBlock" hidden>
+        <div class="info-row"><span id="infoUmapSummary"></span></div>
+      </div>
+      <div class="note" id="infoNote"></div>
+    </section>
+
+    <section class="panel-section" id="controlsSection">
+      <h2>表示設定</h2>
+      <div class="control-row">
+        <label for="projectionSelect">投影</label>
+        <select id="projectionSelect">
+          <option value="pca">PCA</option>
+          <option value="umap">UMAP</option>
+        </select>
+      </div>
+      <div class="control-row">
+        <label for="thresholdSlider">最小出現回数: <strong id="thresholdValue"></strong></label>
+        <input type="range" id="thresholdSlider" min="0" max="1000" step="1">
+        <div class="shown-count">表示中: <span id="shownCount"></span> / <span id="totalCount"></span> 件</div>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="alwaysLabelCheckbox">
+        <label for="alwaysLabelCheckbox" style="margin:0;">ラベルを常に表示</label>
+      </div>
+      <div class="control-row">
+        <label for="colorModeSelect">色分け</label>
+        <select id="colorModeSelect">
+          <option value="chartype">文字種</option>
+          <option value="count">出現回数</option>
+        </select>
+      </div>
+      <div id="legendCategorical" class="legend"></div>
+      <div id="legendSequential" class="legend" hidden>
+        <div class="seq-gradient-bar" id="seqGradientBar"></div>
+        <div class="seq-labels"><span id="seqMinLabel"></span><span id="seqMaxLabel"></span></div>
+      </div>
+    </section>
+
+    <section class="panel-section" id="searchSection">
+      <h2>検索と強調</h2>
+      <input type="text" id="searchInput" value="長短 高低 東西">
+      <div id="searchGroups"></div>
+    </section>
+
+    <section class="panel-section" id="selectionSection">
+      <h2>選択と近傍</h2>
+      <div id="selectionInfo" class="placeholder">点をクリックすると詳細が表示されます</div>
+      <table class="neighbor-table" id="neighborTable" hidden>
+        <thead><tr><th>文字</th><th>類似度</th></tr></thead>
+        <tbody id="neighborTableBody"></tbody>
+      </table>
+    </section>
+  </aside>
+</div>
+
+<script>
+const DATA = /*__EMBEDDING_MAP_DATA__*/null;
+
+// ---- 文字種の分類 ----
+// 特殊tokenは文字列が複数文字になるため、正規表現の前に完全一致で判定する
+const SPECIAL_DISPLAY = { "\n": "⏎", " ": "␣", "<|endoftext|>": "EOS", "<|unk|>": "UNK" };
+const RE_HIRAGANA = /^[぀-ゟ]$/;
+const RE_KATAKANA = /^[゠-ヿ]$/;
+const RE_KANJI = /^[㐀-䶿一-鿿]$/;
+const RE_DIGIT = /^[0-9０-９]$/;
+const RE_ALPHA = /^[A-Za-zＡ-Ｚａ-ｚ]$/;
+
+function classify(token) {
+  if (token in SPECIAL_DISPLAY) return "symbol";
+  if (RE_HIRAGANA.test(token)) return "hiragana";
+  if (RE_KATAKANA.test(token)) return "katakana";
+  if (RE_KANJI.test(token)) return "kanji";
+  if (RE_DIGIT.test(token)) return "digit";
+  if (RE_ALPHA.test(token)) return "alpha";
+  return "symbol";
+}
+
+function displayChar(token) {
+  return SPECIAL_DISPLAY[token] !== undefined ? SPECIAL_DISPLAY[token] : token;
+}
+
+const CATEGORY_LABELS = {
+  hiragana: "ひらがな",
+  katakana: "カタカナ",
+  kanji: "漢字",
+  digit: "数字",
+  alpha: "英字",
+  symbol: "記号・その他",
+};
+const CATEGORY_ORDER = ["hiragana", "katakana", "kanji", "digit", "alpha", "symbol"];
+const CATEGORY_COLOR = {
+  hiragana: "var(--cat-hiragana)",
+  katakana: "var(--cat-katakana)",
+  kanji: "var(--cat-kanji)",
+  digit: "var(--cat-digit)",
+  alpha: "var(--cat-alpha)",
+  symbol: "var(--cat-symbol)",
+};
+// getComputedStyleで解決した実hexを later に詰める
+const CATEGORY_HEX = {};
+
+// ---- token データの前処理 ----
+// vector のノルムはコサイン類似度計算で毎回使うので、ここで一度だけ計算してキャッシュする
+// DATA.tokens の添字がそのままtoken ID
+const tokens = DATA.tokens.map((t, id) => {
+  const vector = t.vector;
+  let sumSq = 0;
+  for (let i = 0; i < vector.length; i++) sumSq += vector[i] * vector[i];
+  return {
+    id: id,
+    token: t.token,
+    count: t.count,
+    pca: t.pca,
+    umap: t.umap,
+    vector: vector,
+    norm: Math.sqrt(sumSq),
+    display: displayChar(t.token),
+    category: classify(t.token),
+  };
+});
+const tokenById = tokens;
+const tokenByChar = new Map();
+tokens.forEach((t) => { tokenByChar.set(t.token, t); });
+
+const maxCount = tokens.reduce((m, t) => Math.max(m, t.count), 1);
+
+function cosineSimilarity(a, b) {
+  let dot = 0;
+  for (let i = 0; i < a.vector.length; i++) dot += a.vector[i] * b.vector[i];
+  if (a.norm === 0 || b.norm === 0) return 0;
+  return dot / (a.norm * b.norm);
+}
+
+// ---- DOM参照 ----
+const canvas = document.getElementById("scatter");
+const ctx = canvas.getContext("2d");
+const tooltipEl = document.getElementById("tooltip");
+const resetBtn = document.getElementById("resetBtn");
+const projectionSelect = document.getElementById("projectionSelect");
+const infoPcaBlockEl = document.getElementById("infoPcaBlock");
+const infoUmapBlockEl = document.getElementById("infoUmapBlock");
+const infoUmapSummaryEl = document.getElementById("infoUmapSummary");
+const infoNoteEl = document.getElementById("infoNote");
+const thresholdSlider = document.getElementById("thresholdSlider");
+const thresholdValueEl = document.getElementById("thresholdValue");
+const shownCountEl = document.getElementById("shownCount");
+const totalCountEl = document.getElementById("totalCount");
+const alwaysLabelCheckbox = document.getElementById("alwaysLabelCheckbox");
+const colorModeSelect = document.getElementById("colorModeSelect");
+const legendCategoricalEl = document.getElementById("legendCategorical");
+const legendSequentialEl = document.getElementById("legendSequential");
+const seqGradientBarEl = document.getElementById("seqGradientBar");
+const seqMinLabelEl = document.getElementById("seqMinLabel");
+const seqMaxLabelEl = document.getElementById("seqMaxLabel");
+const searchInputEl = document.getElementById("searchInput");
+const searchGroupsEl = document.getElementById("searchGroups");
+const selectionInfoEl = document.getElementById("selectionInfo");
+const neighborTableEl = document.getElementById("neighborTable");
+const neighborTableBodyEl = document.getElementById("neighborTableBody");
+
+// ---- 状態 ----
+const state = {
+  projection: "pca",
+  threshold: 100,
+  colorMode: "chartype",
+  alwaysLabel: false,
+  searchGroups: [], // [{ raw, color, chars: [{char, token|null}] }]
+  selectedId: null,
+  shownIds: new Set(),
+};
+
+// ---- 投影の切り替え ----
+// UMAPは出現回数がしきい値未満の文字には座標がない（t.umap === null）
+function coordsFor(t) {
+  return state.projection === "umap" ? t.umap : t.pca;
+}
+function hasCoord(t) {
+  return coordsFor(t) !== null;
+}
+
+const view = { scale: 1, tx: 0, ty: 0 };
+
+// ---- 情報パネルの初期表示 ----
+document.getElementById("infoRunName").textContent = DATA.run_name;
+document.getElementById("infoDModel").textContent = tokens[0].vector.length;
+document.getElementById("infoVocabSize").textContent = tokens.length;
+document.getElementById("infoPc1").textContent = (DATA.explained_variance_ratio[0] * 100).toFixed(1) + "%";
+document.getElementById("infoPc2").textContent = (DATA.explained_variance_ratio[1] * 100).toFixed(1) + "%";
+document.getElementById("infoFitN").textContent = "頻度上位" + DATA.pca_fit_top_n + "文字で当てはめ";
+const totalRatio = (DATA.explained_variance_ratio[0] + DATA.explained_variance_ratio[1]) * 100;
+totalCountEl.textContent = tokens.length;
+
+const PCA_NOTE = "2次元の位置は元の空間の近さを十分には表さない（寄与率の合計は約" + totalRatio.toFixed(1) + "%）。近さの判断は下の近傍一覧（元の空間のコサイン類似度）で行うこと。";
+const UMAP_NOTE = "UMAPは元の空間で近い点を近くに置く。隣どうしの近さは近傍一覧と対応するが、かたまり同士の距離やかたまりの大きさ、軸の向きには意味がない。";
+const UMAP_NO_COORD_TEXT = "UMAPの座標なし（出現" + DATA.umap.min_count.toLocaleString() + "回未満）";
+
+function updateInfoPanel() {
+  const isUmap = state.projection === "umap";
+  infoPcaBlockEl.hidden = isUmap;
+  infoUmapBlockEl.hidden = !isUmap;
+  if (isUmap) {
+    const u = DATA.umap;
+    const umapCount = tokens.filter((t) => t.umap !== null).length;
+    infoUmapSummaryEl.textContent =
+      "出現" + u.min_count.toLocaleString() + "回以上の" + umapCount.toLocaleString() + "文字で計算、" +
+      "n_neighbors " + u.n_neighbors + "、min_dist " + u.min_dist + "、metric cosine、seed " + u.seed;
+    infoNoteEl.textContent = UMAP_NOTE;
+  } else {
+    infoNoteEl.textContent = PCA_NOTE;
+  }
+}
+
+// ---- しきい値スライダー（対数スケール） ----
+const LOG_MIN = Math.log(1);
+const LOG_MAX = Math.log(Math.max(maxCount, 1));
+function sliderPosToThreshold(pos) {
+  const t = pos / 1000;
+  return Math.round(Math.exp(LOG_MIN + t * (LOG_MAX - LOG_MIN)));
+}
+function thresholdToSliderPos(threshold) {
+  const clamped = Math.max(1, Math.min(maxCount, threshold));
+  return Math.round(((Math.log(clamped) - LOG_MIN) / (LOG_MAX - LOG_MIN)) * 1000);
+}
+thresholdSlider.value = thresholdToSliderPos(state.threshold);
+
+function recomputeShown() {
+  state.shownIds = new Set();
+  for (const t of tokens) {
+    if (t.count < state.threshold) continue;
+    if (state.projection === "umap" && !hasCoord(t)) continue;
+    state.shownIds.add(t.id);
+  }
+  shownCountEl.textContent = state.shownIds.size;
+}
+
+// ---- カテゴリ配色（凡例） ----
+function resolveCategoryHex() {
+  const probe = document.createElement("div");
+  probe.style.display = "none";
+  document.body.appendChild(probe);
+  for (const cat of CATEGORY_ORDER) {
+    probe.style.color = CATEGORY_COLOR[cat];
+    const computed = getComputedStyle(probe).color; // "rgb(r, g, b)"
+    CATEGORY_HEX[cat] = computed;
+  }
+  document.body.removeChild(probe);
+}
+resolveCategoryHex();
+
+function buildCategoricalLegend() {
+  legendCategoricalEl.innerHTML = "";
+  for (const cat of CATEGORY_ORDER) {
+    const row = document.createElement("div");
+    row.className = "legend-item";
+    const swatch = document.createElement("span");
+    swatch.className = "legend-swatch";
+    swatch.style.background = CATEGORY_HEX[cat];
+    const label = document.createElement("span");
+    label.textContent = CATEGORY_LABELS[cat];
+    row.appendChild(swatch);
+    row.appendChild(label);
+    legendCategoricalEl.appendChild(row);
+  }
+}
+buildCategoricalLegend();
+
+// ---- 出現回数の連続色（青の一色ランプ、log-lightness） ----
+const SEQ_STOPS = [
+  "#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7",
+  "#3987e5", "#2a78d6", "#256abf", "#1c5cab", "#184f95", "#104281", "#0d366b",
+];
+function hexToRgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+const SEQ_STOPS_RGB = SEQ_STOPS.map(hexToRgb);
+function lerpColor(t) {
+  const clamped = Math.max(0, Math.min(1, t));
+  const pos = clamped * (SEQ_STOPS_RGB.length - 1);
+  const i0 = Math.floor(pos);
+  const i1 = Math.min(SEQ_STOPS_RGB.length - 1, i0 + 1);
+  const frac = pos - i0;
+  const c0 = SEQ_STOPS_RGB[i0];
+  const c1 = SEQ_STOPS_RGB[i1];
+  const r = Math.round(c0[0] + (c1[0] - c0[0]) * frac);
+  const g = Math.round(c0[1] + (c1[1] - c0[1]) * frac);
+  const b = Math.round(c0[2] + (c1[2] - c0[2]) * frac);
+  return "rgb(" + r + "," + g + "," + b + ")";
+}
+seqGradientBarEl.style.background = "linear-gradient(to right, " + SEQ_STOPS.join(",") + ")";
+
+function colorForCount(count, minCount, maxC) {
+  const lo = Math.log(Math.max(1, minCount));
+  const hi = Math.log(Math.max(minCount + 1, maxC));
+  const t = (Math.log(Math.max(1, count)) - lo) / (hi - lo);
+  return lerpColor(t);
+}
+
+function colorForToken(t) {
+  if (state.colorMode === "chartype") return CATEGORY_HEX[t.category];
+  return colorForCount(t.count, state.threshold, maxCount);
+}
+
+function updateSequentialLegendLabels() {
+  seqMinLabelEl.textContent = state.threshold.toLocaleString();
+  seqMaxLabelEl.textContent = maxCount.toLocaleString();
+}
+
+// ---- 検索とハイライトグループ ----
+const GROUP_COLORS = ["var(--grp-1)", "var(--grp-2)", "var(--grp-3)", "var(--grp-4)", "var(--grp-5)", "var(--grp-6)", "var(--grp-7)", "var(--grp-8)"];
+const GROUP_HEX = [];
+function resolveGroupHex() {
+  const probe = document.createElement("div");
+  probe.style.display = "none";
+  document.body.appendChild(probe);
+  for (const c of GROUP_COLORS) {
+    probe.style.color = c;
+    GROUP_HEX.push(getComputedStyle(probe).color);
+  }
+  document.body.removeChild(probe);
+}
+resolveGroupHex();
+
+function parseSearch(raw) {
+  const groups = [];
+  const rawGroups = raw.trim().split(/\s+/).filter((s) => s.length > 0);
+  rawGroups.forEach((rawGroup, i) => {
+    const chars = Array.from(rawGroup).map((ch) => ({
+      char: ch,
+      token: tokenByChar.get(ch) || null,
+    }));
+    groups.push({
+      raw: rawGroup,
+      color: GROUP_HEX[i % GROUP_HEX.length],
+      chars: chars,
+    });
+  });
+  return groups;
+}
+
+function renderSearchGroups() {
+  searchGroupsEl.innerHTML = "";
+  for (const group of state.searchGroups) {
+    const box = document.createElement("div");
+    box.className = "search-group";
+
+    const title = document.createElement("div");
+    title.className = "search-group-title";
+    const dot = document.createElement("span");
+    dot.className = "search-group-dot";
+    dot.style.background = group.color;
+    const titleText = document.createElement("strong");
+    titleText.textContent = group.raw;
+    title.appendChild(dot);
+    title.appendChild(titleText);
+    box.appendChild(title);
+
+    const charsRow = document.createElement("div");
+    charsRow.className = "search-chars";
+    for (const entry of group.chars) {
+      const chip = document.createElement("span");
+      if (!entry.token) {
+        chip.className = "char-chip missing";
+        chip.textContent = entry.char + "：語彙にありません";
+      } else if (state.projection === "umap" && !hasCoord(entry.token)) {
+        chip.className = "char-chip missing";
+        chip.textContent = entry.char + "：" + UMAP_NO_COORD_TEXT;
+      } else {
+        chip.className = "char-chip";
+        const chipDot = document.createElement("span");
+        chipDot.className = "chip-dot";
+        chipDot.style.background = group.color;
+        chip.appendChild(chipDot);
+        chip.appendChild(document.createTextNode(entry.char));
+        chip.addEventListener("click", () => selectToken(entry.token.id));
+      }
+      charsRow.appendChild(chip);
+    }
+    box.appendChild(charsRow);
+
+    // グループ内の文字どうしのコサイン類似度（全ペア）
+    const found = group.chars.filter((c) => c.token);
+    if (found.length >= 2) {
+      const simList = document.createElement("div");
+      simList.className = "sim-list";
+      for (let i = 0; i < found.length; i++) {
+        for (let j = i + 1; j < found.length; j++) {
+          const sim = cosineSimilarity(found[i].token, found[j].token);
+          const row = document.createElement("div");
+          row.className = "sim-row";
+          const label = document.createElement("span");
+          label.textContent = found[i].char + "–" + found[j].char;
+          const value = document.createElement("strong");
+          value.textContent = sim.toFixed(3);
+          row.appendChild(label);
+          row.appendChild(value);
+          simList.appendChild(row);
+        }
+      }
+      box.appendChild(simList);
+    }
+
+    searchGroupsEl.appendChild(box);
+  }
+}
+
+function applySearch() {
+  state.searchGroups = parseSearch(searchInputEl.value);
+  renderSearchGroups();
+  draw();
+}
+
+// ---- 選択と近傍 ----
+function selectToken(id) {
+  state.selectedId = id;
+  renderSelectionPanel();
+  draw();
+}
+
+function renderSelectionPanel() {
+  if (state.selectedId === null) {
+    selectionInfoEl.textContent = "点をクリックすると詳細が表示されます";
+    selectionInfoEl.classList.add("placeholder");
+    neighborTableEl.hidden = true;
+    neighborTableBodyEl.innerHTML = "";
+    return;
+  }
+  const t = tokenById[state.selectedId];
+  selectionInfoEl.classList.remove("placeholder");
+  selectionInfoEl.innerHTML = "";
+  const rows = [
+    ["文字", t.display],
+    ["id", String(t.id)],
+    ["count", t.count.toLocaleString()],
+  ];
+  const coord = coordsFor(t);
+  if (coord) {
+    const coordLabel = state.projection === "umap" ? "umap" : "pca";
+    rows.push([coordLabel, "(" + coord[0].toFixed(3) + ", " + coord[1].toFixed(3) + ")"]);
+  }
+  for (const [label, value] of rows) {
+    const row = document.createElement("div");
+    row.className = "info-row";
+    const span = document.createElement("span");
+    span.textContent = label;
+    const strong = document.createElement("strong");
+    strong.textContent = value;
+    row.appendChild(span);
+    row.appendChild(strong);
+    selectionInfoEl.appendChild(row);
+  }
+  if (!coord) {
+    const note = document.createElement("div");
+    note.className = "note";
+    note.textContent = UMAP_NO_COORD_TEXT;
+    selectionInfoEl.appendChild(note);
+  }
+
+  // 近傍は「表示中」集合の中だけで探す
+  const candidates = [];
+  for (const id of state.shownIds) {
+    if (id === t.id) continue;
+    candidates.push(tokenById[id]);
+  }
+  candidates.sort((a, b) => cosineSimilarity(t, b) - cosineSimilarity(t, a));
+  const top = candidates.slice(0, 10);
+
+  neighborTableBodyEl.innerHTML = "";
+  for (const neighbor of top) {
+    const tr = document.createElement("tr");
+    const tdChar = document.createElement("td");
+    tdChar.textContent = neighbor.display;
+    const tdSim = document.createElement("td");
+    tdSim.className = "num";
+    tdSim.textContent = cosineSimilarity(t, neighbor).toFixed(3);
+    tr.appendChild(tdChar);
+    tr.appendChild(tdSim);
+    tr.addEventListener("click", () => selectToken(neighbor.id));
+    neighborTableBodyEl.appendChild(tr);
+  }
+  neighborTableEl.hidden = top.length === 0;
+  neighborTableEl._neighborIds = new Set(top.map((n) => n.id));
+}
+
+function currentNeighborIds() {
+  return neighborTableEl._neighborIds || new Set();
+}
+
+// ---- キャンバスの座標変換 ----
+function resizeCanvas() {
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.max(1, Math.round(rect.width * dpr));
+  canvas.height = Math.max(1, Math.round(rect.height * dpr));
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function canvasCssSize() {
+  const rect = canvas.getBoundingClientRect();
+  return { width: rect.width, height: rect.height };
+}
+
+function dataToScreen(x, y) {
+  return [x * view.scale + view.tx, -y * view.scale + view.ty];
+}
+
+function fitView() {
+  const size = canvasCssSize();
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const t of tokens) {
+    const c = coordsFor(t);
+    if (!c) continue;
+    if (c[0] < minX) minX = c[0];
+    if (c[0] > maxX) maxX = c[0];
+    if (c[1] < minY) minY = c[1];
+    if (c[1] > maxY) maxY = c[1];
+  }
+  const spanX = Math.max(1e-6, maxX - minX);
+  const spanY = Math.max(1e-6, maxY - minY);
+  const pad = 0.92; // 端に少し余白を残す
+  const scaleX = (size.width * pad) / spanX;
+  const scaleY = (size.height * pad) / spanY;
+  view.scale = Math.min(scaleX, scaleY);
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+  view.tx = size.width / 2 - centerX * view.scale;
+  view.ty = size.height / 2 + centerY * view.scale;
+}
+
+// ---- 描画 ----
+let lastHitList = []; // [{id, sx, sy, r}] ホバー/クリック判定用
+
+function pointRadius(t, highlighted) {
+  if (state.selectedId === t.id) return 7;
+  if (highlighted) return 5;
+  return 3;
+}
+
+function draw() {
+  const size = canvasCssSize();
+  ctx.clearRect(0, 0, size.width, size.height);
+  ctx.fillStyle = getComputedStyle(canvas).getPropertyValue("background-color") || "#fcfcfb";
+  ctx.fillRect(0, 0, size.width, size.height);
+
+  lastHitList = [];
+
+  const shownCountVal = state.shownIds.size;
+  const labelAllNormal = state.alwaysLabel || shownCountVal <= 600;
+  const neighborIds = currentNeighborIds();
+  const searchIds = new Set();
+  for (const g of state.searchGroups) for (const c of g.chars) if (c.token) searchIds.add(c.token.id);
+
+  // 1) 通常点（表示中集合）
+  for (const id of state.shownIds) {
+    const t = tokenById[id];
+    const c = coordsFor(t);
+    if (!c) continue;
+    const [sx, sy] = dataToScreen(c[0], c[1]);
+    if (sx < -20 || sx > size.width + 20 || sy < -20 || sy > size.height + 20) continue;
+    const isHighlighted = neighborIds.has(id) || id === state.selectedId;
+    const r = pointRadius(t, isHighlighted);
+    ctx.beginPath();
+    ctx.arc(sx, sy, r, 0, Math.PI * 2);
+    ctx.fillStyle = colorForToken(t);
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(11,11,11,0.18)";
+    ctx.stroke();
+
+    if (labelAllNormal || isHighlighted) {
+      drawLabel(sx, sy, r, t.display, "#52514e", false);
+    }
+    lastHitList.push({ id, sx, sy, r });
+  }
+
+  // 2) 検索ハイライト（表示中フィルタを無視して常に描く）
+  for (const g of state.searchGroups) {
+    for (const c of g.chars) {
+      if (!c.token) continue;
+      const t = c.token;
+      const coord = coordsFor(t);
+      if (!coord) continue;
+      const [sx, sy] = dataToScreen(coord[0], coord[1]);
+      ctx.beginPath();
+      ctx.arc(sx, sy, 6, 0, Math.PI * 2);
+      ctx.fillStyle = g.color;
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#fcfcfb";
+      ctx.stroke();
+      drawLabel(sx, sy, 6, t.display, g.color, true);
+      lastHitList.push({ id: t.id, sx, sy, r: 6 });
+    }
+  }
+
+  // 3) 選択点とその近傍（リングで強調）
+  if (state.selectedId !== null) {
+    const t = tokenById[state.selectedId];
+    const coord = coordsFor(t);
+    if (coord) {
+      const [sx, sy] = dataToScreen(coord[0], coord[1]);
+      ctx.beginPath();
+      ctx.arc(sx, sy, 10, 0, Math.PI * 2);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#0b0b0b";
+      ctx.stroke();
+    }
+  }
+  for (const id of neighborIds) {
+    const t = tokenById[id];
+    const coord = coordsFor(t);
+    if (!coord) continue;
+    const [sx, sy] = dataToScreen(coord[0], coord[1]);
+    ctx.beginPath();
+    ctx.arc(sx, sy, 8, 0, Math.PI * 2);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "#52514e";
+    ctx.stroke();
+  }
+}
+
+function drawLabel(sx, sy, r, text, color, bold) {
+  ctx.font = (bold ? "bold " : "") + "11px 'Hiragino Sans', system-ui, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "bottom";
+  ctx.fillStyle = color;
+  ctx.fillText(text, sx, sy - r - 2);
+}
+
+// ---- ホバー / クリック / ドラッグ / ズーム ----
+function findNearest(mx, my, maxDist) {
+  let best = null;
+  let bestDist = maxDist;
+  for (const p of lastHitList) {
+    const dx = p.sx - mx, dy = p.sy - my;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist <= bestDist) {
+      bestDist = dist;
+      best = p;
+    }
+  }
+  return best;
+}
+
+let dragging = false;
+let dragStart = null;
+let didDrag = false;
+
+canvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const zoomFactor = Math.exp(-e.deltaY * 0.001);
+  const newScale = Math.max(0.01, Math.min(2000, view.scale * zoomFactor));
+  const actualFactor = newScale / view.scale;
+  view.tx = mx - (mx - view.tx) * actualFactor;
+  view.ty = my - (my - view.ty) * actualFactor;
+  view.scale = newScale;
+  draw();
+}, { passive: false });
+
+canvas.addEventListener("pointerdown", (e) => {
+  dragging = true;
+  didDrag = false;
+  dragStart = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty };
+  canvas.classList.add("dragging");
+  canvas.setPointerCapture(e.pointerId);
+});
+
+canvas.addEventListener("pointermove", (e) => {
+  if (dragging && dragStart) {
+    const dx = e.clientX - dragStart.x;
+    const dy = e.clientY - dragStart.y;
+    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) didDrag = true;
+    view.tx = dragStart.tx + dx;
+    view.ty = dragStart.ty + dy;
+    draw();
+    tooltipEl.hidden = true;
+    return;
+  }
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const hit = findNearest(mx, my, 14);
+  if (hit) {
+    const t = tokenById[hit.id];
+    tooltipEl.hidden = false;
+    tooltipEl.style.left = mx + "px";
+    tooltipEl.style.top = my + "px";
+    tooltipEl.textContent = t.display + "　count=" + t.count.toLocaleString();
+  } else {
+    tooltipEl.hidden = true;
+  }
+});
+
+canvas.addEventListener("pointerup", (e) => {
+  dragging = false;
+  canvas.classList.remove("dragging");
+  if (!didDrag) {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const hit = findNearest(mx, my, 14);
+    if (hit) selectToken(hit.id);
+  }
+});
+
+canvas.addEventListener("pointerleave", () => { tooltipEl.hidden = true; });
+
+resetBtn.addEventListener("click", () => { fitView(); draw(); });
+
+window.addEventListener("resize", () => { resizeCanvas(); draw(); });
+
+// ---- コントロールの結線 ----
+projectionSelect.addEventListener("change", () => {
+  state.projection = projectionSelect.value;
+  recomputeShown();
+  updateSequentialLegendLabels();
+  updateInfoPanel();
+  if (state.selectedId !== null) renderSelectionPanel();
+  renderSearchGroups();
+  fitView();
+  draw();
+});
+
+thresholdSlider.addEventListener("input", () => {
+  state.threshold = sliderPosToThreshold(Number(thresholdSlider.value));
+  thresholdValueEl.textContent = state.threshold.toLocaleString();
+  recomputeShown();
+  updateSequentialLegendLabels();
+  if (state.selectedId !== null) renderSelectionPanel();
+  draw();
+});
+
+alwaysLabelCheckbox.addEventListener("change", () => {
+  state.alwaysLabel = alwaysLabelCheckbox.checked;
+  draw();
+});
+
+colorModeSelect.addEventListener("change", () => {
+  state.colorMode = colorModeSelect.value;
+  legendCategoricalEl.hidden = state.colorMode !== "chartype";
+  legendSequentialEl.hidden = state.colorMode !== "count";
+  draw();
+});
+
+searchInputEl.addEventListener("input", applySearch);
+
+// ---- 初期化 ----
+projectionSelect.value = state.projection;
+updateInfoPanel();
+thresholdValueEl.textContent = state.threshold.toLocaleString();
+recomputeShown();
+updateSequentialLegendLabels();
+resizeCanvas();
+fitView();
+applySearch();
+renderSelectionPanel();
+draw();
+</script>
+</body>
+</html>

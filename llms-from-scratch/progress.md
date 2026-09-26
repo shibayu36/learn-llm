@@ -50,6 +50,8 @@ Stage 3（1層1ヘッドの学習）の学習履歴保存・学習後評価・lo
 - [x] 既存2runを保存済みConfigで再学習・評価し、結果を `evaluation-results.md` に記録（2026-09-26）
 - [x] 所要時間を見て `steps` を見直す（5,000step・学習率1e-3を新しい基準にした、2026-09-26）
 - [x] `d_model` だけ64から128に増やし、全バッチloss・固定20出力・学習時間を比較する。batch sizeは16のまま（2026-09-26）
+- [x] Token embeddingの地図（`visualize.py`・`main.py visualize-embeddings`・`templates/embedding_map.html`）。結果は `visualization-results.md`（2026-09-26）
+- [ ] Hidden stateの軌跡（`visualization-plan.md` の2）
 
 ## Stage 4：複数層
 
@@ -158,3 +160,15 @@ Stage 3（1層1ヘッドの学習）の学習履歴保存・学習後評価・lo
 - 自動確認：設定差分がd_modelだけであること、保存した語彙・評価token数・生成条件の一致、26時点の学習履歴が有限値であることを確認した。モデルを再読み込みして全20出力を再生成し、保存済み結果との完全一致も確認した
 
 現在の設定は128次元。Stage 4・5で採用する幅は未決定で、決めた幅を層数・ヘッド数の比較中は固定する。詳細と全20出力は `evaluation-results.md` に残した。
+
+### Stage 3：Token embeddingの地図（2026-09-26）
+
+`l1h1-s5000-lr1e-3` の `tok_emb.weight` をPCAで2次元にし、自己完結HTML（検索・近傍一覧・頻度フィルタ付き）で観察した。数値と観察は `visualization-results.md`。
+
+- PCAは自前実装（平均を引いて `torch.linalg.svd`）。2軸の寄与率は3.6%・3.3%で、64次元をほぼ均等に使っている
+- 近傍候補を頻度上位300に限ると短・低・西が外れるので、HTML側は「最小出現回数」のスライダー（既定100）で絞る形にした
+- 稀な文字のノルム4.84は、初期値のノルム8にweight decayの倍率 (1−1e-4)^5000 ≈ 0.61 を掛けた値と一致する。ほぼ学習されていない
+- 意味の近さ（長↔短、高↔低、東↔西、北・南）は元の空間の近傍に、表記の種類（ひらがな・漢字・カタカナ・数字）は2次元の配置に現れた
+- HTMLは `templates/embedding_map.html` をテンプレートとしてcommitし、Pythonがデータを埋め込んで `runs/<run>/embedding_map.html` に書く。検証はヘッドレスChromeのスクショ・console・iframe操作テストで行った
+- PCAの図では近傍が隣に来ないので、umap-learn 0.5.12を足してUMAP（metric cosine）に切り替えられるようにした。設定は「コサイン上位10の文字が図の最近傍10に入る個数」の全文字平均で選び、n_neighbors 5・min_dist 0にした（既定の15・0.1で1.4個、採用値で2.2個。偶然なら0.06個、PCAの図では0.19個）
+- UMAPは全体の一致数がseedで安定する一方、特定の組が図で何番目に近いかはseedで大きく変わる（高→低が603位・5位・5位）。図の隣接だけで「近い」と言わず、近傍一覧の類似度で確かめる
