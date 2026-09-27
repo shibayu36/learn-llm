@@ -20,9 +20,7 @@
 | l1h1-s5000-lr1e-3 | 64 | 580,800 | 5,000 | 0.001 | 3.717512 | 111.8秒 | 2.1秒 |
 | l1h1-d128-s5000-lr1e-3 | 128 | 1,251,712 | 5,000 | 0.001 | 3.376540 | 163.2秒 | 3.0秒 |
 
-最初の2runは学習率と更新回数の両方が異なるため、その最終値の比較だけではそれぞれの効果を切り分けられない。後ろの2runは保存済み設定の差がd_modelだけで、語彙と評価対象token数も一致している。
-
-128次元ではパラメータ数が約2.16倍になる。増えるのは埋め込みだけでなくAttention・MLP・出力層も含む。学習時間には200stepごとの評価・生成を含み、実行時のCPU負荷にも左右される。今回の時間比は単発の実測値として読む。
+最初の2runは学習率と更新回数の両方が異なるため、その最終値の比較だけではそれぞれの効果を切り分けられない。後ろの2runは設定の差がd_modelだけである。
 
 ## d_model 64 → 128の生成比較
 
@@ -35,9 +33,9 @@
 | 繰り返し | greedyには「その中」「という」など複数の定型句の反復がある | greedyの全10promptが「そのため」の反復に陥る。ID02〜08はほぼこの句だけで埋まり、今回の出力では反復が強まった |
 | 話題の持続 | ID04のsampling 10件とも、プログラミングの学び方を説明できていない | seed 49には「プログラム」が出るが、学び方の説明にはならない。ID01は「大阪」で始まり、正しい首都を答えていない。ID10は「英」から「語」へつながるが、その後は反復に入る |
 
-lossは正解の文章を入力して次の文字を予測したときの値で、生成は自分が出した文字を次の入力にする。今回の結果では、lossの低下だけから生成時の繰り返しや話題の持続の改善を判断できない。
+lossが下がったのに反復が強まった理由の仮説: lossの改善は「確認していくことが必要です」のような局所的な語句のつながりに現れている。一方、greedyの反復は「そのため、」の直後に再び「そのため」が最大確率になる自己ループで、1層1ヘッドでは数文字前の文脈しか効いていないため抜け出せない。128次元で定型句の確率がより尖ったことで、反復がかえって強まったと考えられる。
 
-単一の学習seedによる比較であり、128次元なら常に反復が悪化するとは断定しない。現在の実装ではモデル初期化とデータのshuffleが同じ乱数系列を使うため、seedが同じでも幅が変わると学習データの提示順は同一とは限らない。
+単一の学習seedによる比較であり、128次元なら常に反復が悪化するとは断定しない。
 
 ## 更新回数・学習率を変えたときの生成比較
 
@@ -48,25 +46,19 @@ lossは正解の文章を入力して次の文字を予測したときの値で�
 | 繰り返し | greedyのID01〜07は長い0の繰り返しに落ちる | greedyの長い数字列は消えたが、「その中」「という」などの反復が残る |
 | 話題の持続 | sampling 10件とも、プログラミングの学習方法を説明する文章にはなっていない | ID10の末尾「英」から「語」へはつながる。一方、プログラミングのsamplingでは「心筋梗塞の治療」など別の話題に脱線する |
 
-lossの改善と、文章の意味・話題を保てるかは別に見る。今回の生成では、どちらのモデルもプログラミングの学び方を説明できていない。
+どちらのモデルもプログラミングの学び方を説明できていない。
 
 ## モデルごとの学習曲線と生成結果
 
-学習曲線はtrain・validationの先頭8バッチで測った値で、上の全バッチlossとは評価範囲が異なる。3モデルとも最終値は初期値より低く、5,000stepの2モデルは後半ほど低下が緩やかになっている。
-
-`runs/` はcommitしないため、生成20件ずつを以下にも保存する。jqコマンドは `llms-from-scratch/` で実行する。
+3モデルとも最終値は初期値より低く、5,000stepの2モデルは後半ほど低下が緩やかになっている。
 
 ### l1h1
 
 ![l1h1の学習曲線](runs/l1h1/loss.png)
 
-最終stepの先頭8バッチのlossはtrain 4.367630、validation 4.264339。
+最終stepのlossはtrain 4.367630、validation 4.264339。
 
 #### 10prompt（temperature 0、各1回）
-
-```bash
-jq -r '.evaluation.generation.samples[] | select(.temperature == 0) | "\(.prompt) -> \(.generated_text)\n"' runs/l1h1/metrics.json
-```
 
 <details>
 <summary>10件の生成結果</summary>
@@ -140,10 +132,6 @@ jq -r '.evaluation.generation.samples[] | select(.temperature == 0) | "\(.prompt
 
 #### 「プログラミングを学ぶには、」の10回トライアル（temperature 0.8）
 
-```bash
-jq -r '.evaluation.generation.samples[] | select(.prompt_id == "04" and .temperature == 0.8) | "\(.prompt) -> \(.generated_text)\n"' runs/l1h1/metrics.json
-```
-
 <details>
 <summary>10件の生成結果</summary>
 
@@ -199,13 +187,9 @@ jq -r '.evaluation.generation.samples[] | select(.prompt_id == "04" and .tempera
 
 ![l1h1-s5000-lr1e-3の学習曲線](runs/l1h1-s5000-lr1e-3/loss.png)
 
-最終stepの先頭8バッチのlossはtrain 3.722951、validation 3.648803。
+最終stepのlossはtrain 3.722951、validation 3.648803。
 
 #### 10prompt（temperature 0、各1回）
-
-```bash
-jq -r '.evaluation.generation.samples[] | select(.temperature == 0) | "\(.prompt) -> \(.generated_text)\n"' runs/l1h1-s5000-lr1e-3/metrics.json
-```
 
 <details>
 <summary>10件の生成結果</summary>
@@ -274,10 +258,6 @@ jq -r '.evaluation.generation.samples[] | select(.temperature == 0) | "\(.prompt
 
 #### 「プログラミングを学ぶには、」の10回トライアル（temperature 0.8）
 
-```bash
-jq -r '.evaluation.generation.samples[] | select(.prompt_id == "04" and .temperature == 0.8) | "\(.prompt) -> \(.generated_text)\n"' runs/l1h1-s5000-lr1e-3/metrics.json
-```
-
 <details>
 <summary>10件の生成結果</summary>
 
@@ -326,13 +306,9 @@ jq -r '.evaluation.generation.samples[] | select(.prompt_id == "04" and .tempera
 
 ![l1h1-d128-s5000-lr1e-3の学習曲線](runs/l1h1-d128-s5000-lr1e-3/loss.png)
 
-最終stepの先頭8バッチのlossはtrain 3.354590、validation 3.279632。同じ2,000step時点のvalidation lossは64次元の3.930703に対して128次元は3.554513。5,000stepまでの曲線を確認すると、序盤から128次元のlossが低い。
+最終stepのlossはtrain 3.354590、validation 3.279632。同じ2,000step時点のvalidation lossは64次元の3.930703に対して128次元は3.554513で、序盤から128次元のlossが低い。
 
 #### 10prompt（temperature 0、各1回）
-
-```bash
-jq -r '.evaluation.generation.samples[] | select(.temperature == 0) | "\(.prompt) -> \(.generated_text)\n"' runs/l1h1-d128-s5000-lr1e-3/metrics.json
-```
 
 <details>
 <summary>10件の生成結果</summary>
@@ -368,14 +344,8 @@ jq -r '.evaluation.generation.samples[] | select(.temperature == 0) | "\(.prompt
 
 #### 「プログラミングを学ぶには、」の10回トライアル（temperature 0.8）
 
-```bash
-jq -r '.evaluation.generation.samples[] | select(.prompt_id == "04" and .temperature == 0.8) | "seed \(.seed): \(.prompt) -> \(.generated_text)\n"' runs/l1h1-d128-s5000-lr1e-3/metrics.json
-```
-
 <details>
 <summary>10件の生成結果（seed 42〜51）</summary>
-
-表示用に行末の空白だけを除去している。元の出力は `metrics.json` に保存している。
 
 ```text
 [seed 42] プログラミングを学ぶには、 -> あるのが、気軽に歯が、カード。
@@ -423,8 +393,6 @@ jq -r '.evaluation.generation.samples[] | select(.prompt_id == "04" and .tempera
 </details>
 
 ## 再評価するコマンド
-
-保存済みモデルでlossと20出力を再生成する。学習曲線は `train` 実行時に保存される。
 
 ```bash
 uv run main.py evaluate --run-name l1h1
