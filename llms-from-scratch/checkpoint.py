@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 
 from config import Config
-from gpt import OneLayerOneHeadGPT
+from gpt import OneLayerOneHeadGPT, OneHeadGPT
 from tokenizer import CharTokenizer
 
 # 本の 5.4「モデルの重みの保存と読み込み」に相当する。学習済みのモデル・設定・語彙を
@@ -37,6 +37,8 @@ def load_run(run_dir: Path) -> tuple[nn.Module, Config, CharTokenizer]:
 
     if data["model"] == "OneLayerOneHeadGPT":
         model = OneLayerOneHeadGPT(tokenizer.vocab_size, config)
+    elif data["model"] == "OneHeadGPT":
+        model = OneHeadGPT(tokenizer.vocab_size, config)
     else:
         raise ValueError(f"未対応のモデル: {data['model']}")
 

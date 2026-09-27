@@ -195,3 +195,46 @@ class OneLayerOneHeadGPT(nn.Module):
         # ごとにロジット（正規化されていない確率）を出す。[B, T, D] → [B, T, vocab_size]
         logits = self.out_head(x)
         return logits
+
+
+# OneHeadGPTの構造（本の4.6 GPTModel と同じ形。Attentionは1ヘッドのまま）
+#
+# in_idx [B, T]
+#   │ tok_emb + pos_emb
+#   ▼
+# x [B, T, D]
+#   │ trf_blocks[0]: x = x + att(norm1(x)); x = x + ff(norm2(x))
+#   │ trf_blocks[1]: 同じ形。ただしパラメータは別
+#   │ ...（n_layers 個）
+#   ▼
+# x [B, T, D]
+#   │ final_norm → out_head: Linear(D, vocab_size)
+#   ▼
+# logits [B, T, vocab_size]
+#
+# ショートカット接続で各ブロックは x に差分を足すだけなので、x の shape は
+# 何層通っても [B, T, D] のまま。この「足し続けられる1本の流れ」があるから層を積める
+class OneHeadGPT(nn.Module):
+    def __init__(self, vocab_size: int, config: Config) -> None:
+        super().__init__()
+        self.tok_emb = nn.Embedding(vocab_size, config.d_model)
+        self.pos_emb = nn.Embedding(config.context_length, config.d_model)
+        # TransformerBlock を n_layers 個作る。1つずつ new するので、各ブロックの
+        # パラメータは別々に初期化され、別々に学習される
+        blocks: list[nn.Module] = []
+        for _ in range(config.n_layers):
+            blocks.append(TransformerBlock(config))
+        # nn.Sequential は渡したモジュールを並んだ順に呼び、前の出力を次の入力にする部品。
+        self.trf_blocks = nn.Sequential(*blocks)
+        self.final_norm = LayerNorm(config.d_model)
+        self.out_head = nn.Linear(config.d_model, vocab_size, bias=False)
+
+    def forward(self, in_idx: torch.Tensor) -> torch.Tensor:
+        seq_len = in_idx.shape[1]
+        tok_embeds = self.tok_emb(in_idx)
+        pos_embeds = self.pos_emb(torch.arange(seq_len))
+        x = tok_embeds + pos_embeds
+        x = self.trf_blocks(x)
+        x = self.final_norm(x)
+        logits = self.out_head(x)
+        return logits

@@ -2,6 +2,8 @@ class Config:
     def __init__(self) -> None:
         # 1tokenを表すベクトルの次元数（shapeの D）。パラメータ数を最も大きく左右する
         self.d_model: int = 128
+        # 積むTransformerブロックの数。ブロックごとに別のパラメータを持つ
+        self.n_layers: int = 1
         # 一度にモデルへ入れる系列の最大token数（shapeの T）
         self.context_length: int = 256
         # 1stepの更新で同時に学習する系列の数（shapeの B）
@@ -25,6 +27,7 @@ class Config:
     def to_dict(self) -> dict:
         return {
             "d_model": self.d_model,
+            "n_layers": self.n_layers,
             "context_length": self.context_length,
             "batch_size": self.batch_size,
             "steps": self.steps,
@@ -39,6 +42,7 @@ class Config:
     def from_dict(cls, data: dict) -> "Config":
         config = cls()
         config.d_model = data["d_model"]
+        config.n_layers = data["n_layers"]
         config.context_length = data["context_length"]
         config.batch_size = data["batch_size"]
         config.steps = data["steps"]
