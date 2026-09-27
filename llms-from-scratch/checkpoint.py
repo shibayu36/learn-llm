@@ -43,5 +43,5 @@ def load_run(run_dir: Path) -> tuple[nn.Module, Config, CharTokenizer]:
         raise ValueError(f"未対応のモデル: {data['model']}")
 
     # load_state_dict は、同じ構造のモデルに保存しておいた辞書の値を流し込む
-    model.load_state_dict(torch.load(run_dir / "model.pt"))
+    model.load_state_dict(torch.load(run_dir / "model.pt", map_location="cpu"))
     return model, config, tokenizer

@@ -42,7 +42,7 @@
 - 学習中の評価は、本と同じく訓練セット・検証セットの先頭 `eval_batches` バッチで行う。ただし訓練用の `DataLoader` は `shuffle=True` で毎回違う窓が出るので、評価用に `shuffle=False` の `DataLoader` を別に作り、毎回同じ窓で測る
 - optimizerは本と同じ `AdamW`、`weight_decay=0.1` も同じ。学習率は本の3e-4ではなく1e-3。このサイズでは3e-4だと2,000stepでも下がりきらず、1e-3にしても序盤に跳ねなかったため。保存はモデルの `state_dict` だけで、optimizerの状態は保存しない（学習の再開はしない）
 - `runs/<run_name>/config.json` には `Config` の値に加えてモデルのクラス名を入れる。Stage 4で `OneHeadGPT` が増えても `generate` がどのクラスを組み立てるか迷わないようにするため
-- 実行はCPU固定。device選択のコードは書かない。層を積んで学習が遅く感じるようになったらMac GPU（MPS）を試す（変える場所は `main.py` の `.to(device)`、`gpt.py` の `torch.arange(..., device=)`、`calc_loss_batch`、`torch.load(map_location=)` の4か所）
+- 学習は `Config.device`（既定 `"mps"`、Mac GPU）で行い、生成・評価・可視化はCPUで行う。1文字ずつ生成する処理はGPUの方が遅く、UMAPやSVDもCPU前提のため。モデルと `GPTDataset` のID列を最初から `config.device` に置き、`train.py` の関数には `device` を引き回さない。`device` は結果を変えないので `config.json` には保存せず、`load_run` は `map_location="cpu"` で読む。`torch.set_default_device` は `DataLoader(shuffle=True)` の乱数生成器と衝突するので使わない
 - コードのコメントは本の用語（「Causal Attention」「ショートカット接続」「層正規化」など）に合わせる
 
 ## 実行条件

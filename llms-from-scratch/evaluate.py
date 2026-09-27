@@ -23,6 +23,7 @@ def evaluate_validation(
         stride=context_length,
         shuffle=False,
         drop_last=False,
+        device="cpu",
     )
 
     model.eval()

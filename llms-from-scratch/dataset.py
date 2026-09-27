@@ -35,16 +35,17 @@ def join_texts_with_eos(texts: list[str], tokenizer: CharTokenizer) -> list[int]
 #   input:  都 は 東 京      target:  は 東 京 (次の文字)
 # 各位置の正解は「その位置の次の文字」なので、1組で max_length 個の予測問題を含む
 class GPTDataset(Dataset):
-    def __init__(self, token_ids: list[int], max_length: int, stride: int) -> None:
+    def __init__(self, token_ids: list[int], max_length: int, stride: int, device: str) -> None:
+        # torch.tensor はPythonのリストをテンソル（PyTorchの多次元配列）に変換する
+        all_ids = torch.tensor(token_ids, device=device)
         self.input_ids: list[torch.Tensor] = []
         self.target_ids: list[torch.Tensor] = []
         # stride は窓を何個ずらすか。max_length と同じにすると窓どうしが重ならない
         for i in range(0, len(token_ids) - max_length, stride):
-            input_chunk = token_ids[i:i + max_length]
-            target_chunk = token_ids[i + 1:i + max_length + 1]
-            # torch.tensor はPythonのリストをテンソル（PyTorchの多次元配列）に変換する
-            self.input_ids.append(torch.tensor(input_chunk))
-            self.target_ids.append(torch.tensor(target_chunk))
+            input_chunk = all_ids[i:i + max_length]
+            target_chunk = all_ids[i + 1:i + max_length + 1]
+            self.input_ids.append(input_chunk)
+            self.target_ids.append(target_chunk)
 
     # DataLoader が呼ぶ2つのメソッド。__len__ は組の総数、__getitem__ は idx 番目の組を返す
     def __len__(self) -> int:
@@ -64,8 +65,9 @@ def create_dataloader(
     stride: int,
     shuffle: bool,
     drop_last: bool,
+    device: str,
 ) -> DataLoader:
-    dataset = GPTDataset(token_ids, max_length, stride)
+    dataset = GPTDataset(token_ids, max_length, stride, device)
     return DataLoader(
         dataset,
         batch_size=batch_size,

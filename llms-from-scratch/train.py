@@ -58,15 +58,15 @@ def evaluate_model(
 # 本の generate_and_print_sample。start_contextの続きをgreedyで50文字生成して表示する。
 # generate は内側で既に torch.no_grad() を使っているので、ここでは重ねて書かない
 def generate_and_print_sample(
-    model: nn.Module, tokenizer: CharTokenizer, context_length: int, start_context: str
+    model: nn.Module, tokenizer: CharTokenizer, config: Config, start_context: str
 ) -> None:
     model.eval()
-    context_ids = text_to_token_ids(start_context, tokenizer)
+    context_ids = text_to_token_ids(start_context, tokenizer).to(config.device)
     token_ids = generate(
         model,
         context_ids,
         max_new_tokens=50,
-        context_size=context_length,
+        context_size=config.context_length,
         temperature=0.0,
     )
     decoded_text = token_ids_to_text(token_ids, tokenizer)
@@ -107,7 +107,7 @@ def train_model(
             train_losses.append(train_loss)
             val_losses.append(val_loss)
             print(f"step {step:4d}: train loss {train_loss:.3f}, validation loss {val_loss:.3f}")
-            generate_and_print_sample(model, tokenizer, config.context_length, start_context)
+            generate_and_print_sample(model, tokenizer, config, start_context)
         if step == config.steps:
             break
 

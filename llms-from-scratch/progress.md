@@ -15,6 +15,7 @@ Stage 4（複数層）を進行中（2026-09-27）。`OneHeadGPT`（`n_layers` �
 - `generate.py` のロジットの説明は、学習後のモデルに「日本の首都は」を入れて観察した実値の表にした。観察に使ったスクリプトは `tmp/show_logits.py`（commitしない）
 - 保存・読み込みは `train.py` ではなく `checkpoint.py` に分けた。`generate` が `train.py` を読み込むと「生成に訓練が要る」ように見えるため
 - 新しい用語が出る節では用語集 `docs/glossary.md` に追記する
+- 学習だけ `Config.device` の装置（既定 `"mps"`）で行い、生成・評価・可視化はCPUのまま。モデルと `GPTDataset` のID列を最初から `config.device` に置き、DataLoaderがその装置上のバッチを返すようにする。本のように `calc_loss_batch` などへ `device` を引き回さないため。`device` は `config.json` に保存しない
 - optimizerは本と同じく `train_model` の外で作って渡す形のままにする。モデルとoptimizerは `.grad` を通して暗黙につながるので、optimizerは必ずそのモデルの `parameters()` で作る。Stage 6でスケジューラやパラメータのグループ分けを入れるときも外で作る
 
 ## Stage 0：部品の実装
@@ -212,3 +213,12 @@ Stage 4（複数層）を進行中（2026-09-27）。`OneHeadGPT`（`n_layers` �
 
 - 埋め込みの近傍を読むときは偶然の水準を先に出す。ランダムな1,632本のベクトルで近傍1位の平均は64次元で0.41、128次元で0.30。実際の埋め込みの平均と同じなので、上位10の大半は偶然
 - 近傍の理由は、訓練データの前後1文字の出現分布の類似度と、`out_head` の行どうしの類似度で確かめた（`tmp/why_neighbors.py`、commitしない）。`tok_emb` と `out_head` は別の行列で、持っている情報が違う
+
+### Stage 4：学習をMac GPU（MPS）に移す（2026-09-27）
+
+4層の学習が384秒かかるようになったので、学習だけMPSに移した。`tmp/bench_mps.py`（commitしない）で計測してから決めた。
+
+- 学習1stepは1層で30.4ms → 12.2ms、4層で66.5ms → 25.1ms（約2.5倍）。バッチの `.to("mps")` 転送は0.4ms/stepで無視できる
+- 1文字ずつの生成は逆に遅い（1層50文字で0.018秒 → 0.13秒）。evaluateは全バッチlossが速くなる分を20本の生成が食いつぶし、合計では速くならない。UMAPは `.numpy()` がMPSで落ち、`torch.linalg.svd` はCPUにフォールバックする。生成・評価・可視化はCPUに残した
+- `torch.set_default_device("mps")` を入口で1回呼ぶ案は不採用。`DataLoader(shuffle=True)` の乱数生成器がCPUのまま `randperm` の出力先だけMPSになり例外になる。Datasetの2万個の小さいテンソルもGPUに作られ、データ準備が1.5秒 → 15秒になる
+- 1層をMPSで5,000step学習した `l1h1-d128-s5000-lr1e-3-mps` は、CPUの `l1h1-d128-s5000-lr1e-3` と全バッチvalidation loss 3.376540・学習中の最終値 3.279632・greedy生成がすべて一致した。初期値とshuffle順はCPUの乱数で作ってからGPUへ送るので乱数の消費が変わらず、Dropoutもないため。学習時間は163.2秒 → 64.3秒

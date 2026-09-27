@@ -186,7 +186,7 @@ class OneLayerOneHeadGPT(nn.Module):
         tok_embeds = self.tok_emb(in_idx)
         # 位置埋め込み: 0, 1, 2, … 番目に対応する行を引く。トークン埋め込みに加算する
         # ことで、「何のトークンか」に「何番目か」の情報が加わる。[T, D]
-        pos_embeds = self.pos_emb(torch.arange(seq_len))
+        pos_embeds = self.pos_emb(torch.arange(seq_len, device=in_idx.device))
         x = tok_embeds + pos_embeds
         x = self.trf_block(x)
         # ショートカット接続で加算し続けたxを、最後にもう一度層正規化する
@@ -232,7 +232,7 @@ class OneHeadGPT(nn.Module):
     def forward(self, in_idx: torch.Tensor) -> torch.Tensor:
         seq_len = in_idx.shape[1]
         tok_embeds = self.tok_emb(in_idx)
-        pos_embeds = self.pos_emb(torch.arange(seq_len))
+        pos_embeds = self.pos_emb(torch.arange(seq_len, device=in_idx.device))
         x = tok_embeds + pos_embeds
         x = self.trf_blocks(x)
         x = self.final_norm(x)

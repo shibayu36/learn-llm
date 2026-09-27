@@ -42,6 +42,7 @@ def run_train(config: Config, run_name: str) -> None:
         stride=config.context_length,
         shuffle=True,
         drop_last=True,
+        device=config.device,
     )
     # trainと同じtoken列から作るが、shuffle=Falseで先頭から並ぶ。評価を毎回同じ窓で行うため
     train_eval_loader = create_dataloader(
@@ -51,6 +52,7 @@ def run_train(config: Config, run_name: str) -> None:
         stride=config.context_length,
         shuffle=False,
         drop_last=False,
+        device=config.device,
     )
     validation_loader = create_dataloader(
         validation_ids,
@@ -59,9 +61,11 @@ def run_train(config: Config, run_name: str) -> None:
         stride=config.context_length,
         shuffle=False,
         drop_last=False,
+        device=config.device,
     )
 
     model = OneHeadGPT(tokenizer.vocab_size, config)
+    model.to(config.device)
     # パラメータ数。numel はテンソルの要素数を返す
     total_params = 0
     for param in model.parameters():

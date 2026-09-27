@@ -21,6 +21,8 @@ class Config:
         self.eval_batches: int = 8
         # 乱数の種
         self.seed: int = 42
+        # 学習に使う計算装置。生成・評価はCPUで行う（1文字ずつの小さな計算はGPUの方が遅い）
+        self.device: str = "mps"
 
     # 学習時の設定を config.json に保存・復元するため。読み込んだモデルは学習時と
     # 同じ設定で組み立てる必要がある
