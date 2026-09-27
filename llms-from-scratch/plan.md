@@ -20,7 +20,7 @@
 | 第3章 Attentionメカニズムのコーディング（3.4 学習可能な重み、3.5 Causal Attention） | Stage 0で実装済み（`SelfAttention_v1`、`CausalAttention`） |
 | 第3章 3.6 Multi-head Attention | Stage 5。本と同じく `MultiHeadAttentionWrapper`（ヘッドを並べて連結）→ `MultiHeadAttention`（1つの行列を分割）の2段階で作る |
 | 第4章 GPTモデルを一から実装する（4.2 LayerNorm、4.3 GELU/FFN、4.4 ショートカット、4.5 Transformerブロック） | Stage 0で実装済み |
-| 第4章 4.6 GPTモデル | Stage 0で1層版 `OneLayerOneHeadGPT` を実装済み。層を積む `GPTModel` はStage 4 |
+| 第4章 4.6 GPTモデル | Stage 0で1層版 `OneLayerOneHeadGPT` を実装済み。層を積む `OneHeadGPT` はStage 4、Multi-head化した `GPTModel` はStage 5 |
 | 第4章 4.7 テキストを生成する | Stage 2。本の `generate_text_simple`（greedy）は作らず、最初から `generate`（`temperature=0` でgreedy）にする |
 | 第5章 ラベルなしデータでの事前学習（5.1 評価、5.2 訓練、5.3 デコーディング戦略、5.4 保存と読み込み） | Stage 2〜3。損失関数・訓練ループ・temperature・保存。5.3.2 top-kは学習後の生成を見て必要なら足す |
 | 第5章 5.5 OpenAIの重みを読み込む | やらない。語彙もサイズも違うので読み込めない |
@@ -33,37 +33,38 @@
 
 - Tokenizerは1文字1token。trainに現れた文字にEOS・UNKを加えた語彙（約4,052）。tiktokenのGPT-2 BPEは日本語がbyte断片になり生成結果が読めないため使わない
 - 学習データは `hotchpotch/fineweb-2-edu-japanese` の `small_tokens_cleaned` から固定した1万文書（train 9,000・validation 1,000）。取得条件は `data/fineweb-japanese-10k/manifest.json`
-- 本の `GPTModel` は `n_layers`・`n_heads` を最初から持つが、ここでは1層1ヘッドと分かる `OneLayerOneHeadGPT` を先に作り、層を積む版・Multi-head版は後で別クラスとして足す。`OneLayerOneHeadGPT` は比較の基準として残す
+- 本の `GPTModel` は `n_layers`・`n_heads` を最初から持つが、ここでは1層1ヘッドと分かる `OneLayerOneHeadGPT` を先に作り、層を積む版は `OneHeadGPT`（`n_layers` 可変・1ヘッド固定）、Multi-head版は `GPTModel`（`n_layers`・`n_heads`）と、名前で何が可変かを示す別クラスとして足す。`OneLayerOneHeadGPT` は比較の基準として残す
+- 層数・ヘッド数の比較は `config.py` の値を手で変えて `main.py train` を回す。CLIの上書き引数は作らない。run名と設定は `runs/<run_name>/config.json` に残るので再現できる
 - MLP中間次元は本どおり `4 * d_model` 固定。dropoutなし。Q/K/Vと出力層はbiasなし
 - Causal maskは本の `CausalAttention` と同じ `triu(diagonal=1)` + `masked_fill(-inf)`
 - 本では `GPT_CONFIG_124M` の辞書だが、ここでは `Config` クラス（型付き）にする
 - 訓練ループは本の `train_model_simple` のepoch単位ではなく、`steps` 回の更新で回す。層数・ヘッド数の比較で「同じ回数だけ更新した」とそろえるため。trainは1,447バッチなので5,000stepは約3.5周
 - 学習中の評価は、本と同じく訓練セット・検証セットの先頭 `eval_batches` バッチで行う。ただし訓練用の `DataLoader` は `shuffle=True` で毎回違う窓が出るので、評価用に `shuffle=False` の `DataLoader` を別に作り、毎回同じ窓で測る
 - optimizerは本と同じ `AdamW`、`weight_decay=0.1` も同じ。学習率は本の3e-4ではなく1e-3。このサイズでは3e-4だと2,000stepでも下がりきらず、1e-3にしても序盤に跳ねなかったため。保存はモデルの `state_dict` だけで、optimizerの状態は保存しない（学習の再開はしない）
-- `runs/<run_name>/config.json` には `Config` の値に加えてモデルのクラス名を入れる。Stage 4で `GPTModel` が増えても `generate` がどのクラスを組み立てるか迷わないようにするため
-- 実行はCPU固定。device選択のコードは書かない。Mac GPU（MPS）は今のサイズでは効きにくいので、Stage 6でモデルを大きくするときに検討する（変える場所は `main.py` の `.to(device)`、`gpt.py` の `torch.arange(..., device=)`、`calc_loss_batch`、`torch.load(map_location=)` の4か所）
+- `runs/<run_name>/config.json` には `Config` の値に加えてモデルのクラス名を入れる。Stage 4で `OneHeadGPT` が増えても `generate` がどのクラスを組み立てるか迷わないようにするため
+- 実行はCPU固定。device選択のコードは書かない。層を積んで学習が遅く感じるようになったらMac GPU（MPS）を試す（変える場所は `main.py` の `.to(device)`、`gpt.py` の `torch.arange(..., device=)`、`calc_loss_batch`、`torch.load(map_location=)` の4か所）
 - コードのコメントは本の用語（「Causal Attention」「ショートカット接続」「層正規化」など）に合わせる
 
 ## 実行条件
 
-以下はStage 3で記録した64次元モデルの比較基準。追加実験では `config.py` の `d_model` だけを128に変えた（batch 16のまま）。全バッチvalidation lossは3.717512から3.376540へ下がったが、greedyの反復は強まった。結果は `evaluation-results.md` に記録した。現在の設定は128次元で、Stage 4・5で採用する幅は開始前に決める。
+Stage 4・5の比較基準。Stage 3では64次元で記録し、`d_model` だけを128に変えた比較で全バッチvalidation lossが3.717512から3.376540へ下がった（greedyの反復は強まった。`evaluation-results.md`）。この結果を踏まえ、2026-09-27にStage 4・5の幅を128に決めた。1層1ヘッドの基準runは `l1h1-d128-s5000-lr1e-3`。
 
 | 条件 | 基準値 |
 |---|---:|
-| `d_model` | 64 |
+| `d_model` | 128 |
 | `context_length` | 256 |
 | `batch_size` | 16 |
-| MLP中間次元 | 256（`4 * d_model`） |
+| MLP中間次元 | 512（`4 * d_model`） |
 | 更新回数 `steps` | 5,000 |
 | 学習率 | 1e-3（AdamW） |
 | 語彙数 | 4,052 |
-| 1層1ヘッドのパラメータ数 | 580,800（うちEmbedding+出力層が535,040） |
+| 1層1ヘッドのパラメータ数 | 1,251,712（うちEmbedding+出力層が1,070,080） |
 
-パラメータ数の9割はEmbeddingと出力層で、層やヘッドを増やしても1層あたり約46,000しか増えない。層数・ヘッド数の比較で「パラメータ数がほぼ変わらないのに結果が変わるか」を見られる。
+パラメータ数の85%はEmbeddingと出力層で、層を増やしても1層あたり約181,000しか増えない。層数・ヘッド数の比較で「パラメータ数の増え方に対して結果がどう変わるか」を見られる。64次元の1層run（580,800）と並べると、幅を倍にする効果と層を積む効果も比べられる。
 
-`context_length` は当初64にしていたが、日本語で2〜3文しか入らず「話題を保てるか」を見るには短いので、本の第5章の訓練と同じ256にした。1stepの所要時間は64で8ms・256で21ms（1層1ヘッド、CPU）と差が小さい。
+`context_length` は当初64にしていたが、日本語で2〜3文しか入らず「話題を保てるか」を見るには短いので、本の第5章の訓練と同じ256にした。1stepの所要時間は64で8ms・256で21ms（1層1ヘッド、64次元、CPU）と差が小さい。
 
-更新回数と学習率は当初2,000step・3e-4だったが、lossが下がりきらないまま終わったので、Stage 3で5,000step・1e-3に変えた。1層1ヘッドで約105秒。層を増やすと1stepの時間も増えるので、4層で5分を超えるようなら見直す。
+更新回数と学習率は当初2,000step・3e-4だったが、lossが下がりきらないまま終わったので、Stage 3で5,000step・1e-3に変えた。1層1ヘッドは64次元で約105秒、128次元で約163秒。層を増やすと1stepの時間も増えるが、学習時間に上限は設けない。待ちづらくなったらMac GPU（MPS）を試す。
 
 ## 評価のそろえ方
 
@@ -73,7 +74,7 @@
 
 ```
 llms-from-scratch/
-  config.py        Config（Stage 4で n_layers、Stage 5で n_heads を追加）
+  config.py        Config（Stage 4で n_layers、Stage 5で n_heads を追加）。比較実験はここの値を手で変えて回す
   gpt.py           モデルの部品とGPT本体（本のgpt.pyに相当）
   tokenizer.py     文字Tokenizer（Stage 1）
   dataset.py       GPTDataset + DataLoader（Stage 1）
@@ -83,7 +84,7 @@ llms-from-scratch/
   plot.py          学習中のloss曲線の描画
   checkpoint.py    学習結果の保存と読み込み（Stage 3）
   main.py          入口。`train`・`generate`・`evaluate` のサブコマンドを持つ
-  experiments/     層数・ヘッド数の比較スクリプト（Stage 4〜）
+  experiments/     ショートカット接続を外すなど、main.py の学習では表せない実験のスクリプト。必要になったら作る
   runs/            実行結果（model.pt、config.json、vocab.json、metrics.json、loss.png）。commitしない。残したい結果は evaluation-results.md に書く
   evaluation-results.md  評価結果。runごとの条件・loss・生成・観察
   docs/            用語集など学習用の資料
@@ -128,18 +129,18 @@ Stage 3以降の `main.py` は次の3つのサブコマンドを持つ。
 
 ### Stage 4：複数層（本 4.6）
 
-- Configに `n_layers` を追加し、`TransformerBlock` を `nn.Sequential` で積む `GPTModel` を作る（本の `GPTModel` と同じ形。Attentionは1ヘッドのまま）
-- `n_layers=1` の `GPTModel` が `OneLayerOneHeadGPT` と同じパラメータ数・同じ動きになることを確認する
-- 実験：1・2・4層を同じ条件で学習し、パラメータ数・loss・生成・時間を並べる
-- 観察：層を増やせばlossが下がるか。下がらないなら容量不足かデータ不足か学習不足か。生成の質は変わるか
+- Configに `n_layers` を追加し、`TransformerBlock` を `nn.Sequential` で積む `OneHeadGPT` を作る（本の `GPTModel` と同じ形。Attentionは1ヘッドのまま）。`main.py train` はこのクラスで学習する
+- `n_layers=1` の `OneHeadGPT` が `OneLayerOneHeadGPT` と同じパラメータ数・同じ動きになることを確認する。同じseedで作った2つのモデルの全パラメータとlogitsの一致と、`l1h1-d128-s5000-lr1e-3` の重みをキー名を付け替えて流し込んだときの全バッチvalidation lossの一致（3.376540）を見る。一致すれば1層は学習し直さず、このrunを1層の基準にする
+- 実験：`config.py` の `n_layers` を2・4に変えて学習し（`l2h1-d128-s5000-lr1e-3`・`l4h1-d128-s5000-lr1e-3`）、1層と並べてパラメータ数・loss・生成・時間を比べる
+- 観察：層を増やせばlossが下がるか。下がらないなら容量不足かデータ不足か学習不足か。生成の質は変わるか。4層のrunで `visualize-hidden-states` を実行し、「行」の予測が何層目で動詞側・熟語側に分かれるか、「の」は深くしても平坦なままかを見る
 - 任意：ショートカット接続を外すと深い層で学習が進まなくなるか（本 4.4の実験を学習で再現）
 
 ### Stage 5：Multi-head Attention（本 3.6）
 
 - まず `MultiHeadAttentionWrapper`（`CausalAttention` を `n_heads` 個並べて連結）を作り、出力の次元が `n_heads * d_out` になることを確認する
 - 次に `MultiHeadAttention`（1つの `W_query` などを `n_heads` に分割し、`view`・`transpose` で並列計算し、`out_proj` で戻す）を作り、`d_model` を固定したままヘッド数だけ変えられるようにする
-- Configに `n_heads` を追加し、`GPTModel` のAttentionを `MultiHeadAttention` に置き換える。`n_heads=1` で結果が変わらないことを確認する
-- 実験：Stage 4で採用した `d_model` に固定して1・2・4ヘッドを比べる。Q/K/Vのパラメータ数がヘッド数で変わらないことを確認する
+- Configに `n_heads` を追加し、`OneHeadGPT` を元にAttentionを `MultiHeadAttention` に置き換えた `GPTModel` を作る。`n_heads=1` で `OneHeadGPT` と結果が変わらないことを確認する
+- 実験：`d_model=128` に固定して1・2・4ヘッドを比べる。Q/K/Vのパラメータ数がヘッド数で変わらないことを確認する
 - 観察：ヘッドごとのAttention weightを同じ入力で並べ、ヘッドによって見る位置が違うか。lossと生成は変わるか
 
 ### Stage 6：その後の候補
@@ -152,6 +153,6 @@ Stage 5まで終えてから、次のどれをやるか決める。
 
 ## この計画を見直す条件
 
-- 1回の学習が5分を超えるようになったら、更新回数か `d_model` を下げる
+- 学習が遅くて比較を回しづらくなったら、まずMac GPU（MPS）を試す。それでも遅ければ更新回数を下げる
 - 語彙やデータを変えるなら、Tokenizerとモデルを組にして作り直す
 - 実験用の分岐が `gpt.py` に増えて読みにくくなったら、基準のモデルと実験スクリプトの責務を分ける

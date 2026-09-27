@@ -4,10 +4,13 @@
 
 ## 現在の作業
 
-Stage 3（1層1ヘッドの学習）の学習履歴保存・学習後評価・loss曲線の出力と、d_model 64 → 128の比較まで完了。最終lossは `evaluation-results.md` の表で比較する。5,000step・学習率1e-3・batch 16を維持し、現在の `config.py` はd_model 128（2026-09-26）。Stage 4・5で採用する幅は今回の結果を踏まえて決める。固定10promptの学習前出力は未記録。次はStage 4（複数層）。
+Stage 4（複数層）を進行中（2026-09-27）。`OneHeadGPT`（`n_layers` 可変・1ヘッド）を実装し、4層の学習・評価と、参考実験の1層20,000stepまで完了。残りは2層の学習、4層のhidden stateの観察、記録の更新。`config.py` は `n_layers=1`・`steps=5000` に戻してある。
 
-- Stage 3段階2までのコードと記録はcommit済み
-- `runs/` はディレクトリごとcommitしない。model.pt を入れないなら config.json や metrics.json だけ残しても再現できないため。残したい数値や生成結果は `evaluation-results.md` にrunごとに書く
+Stage 4・5の `d_model` は128に決めた。1層1ヘッドの基準runは `l1h1-d128-s5000-lr1e-3`。5,000step・学習率1e-3・batch 16は維持する。層数の切り替えはCLI引数ではなく `config.py` を手で変える。学習時間に上限は設けず、遅くなったらMPSを検討する。固定10promptの学習前出力は未記録。
+
+- Stage 4の `OneHeadGPT` の実装と4層・20,000stepの結果、`evaluation-results.md` の構成変更は未commit。実装と結果で2つに分けてcommitする
+- `evaluation-results.md` は「変えた条件のカテゴリ（層数・幅・更新回数と学習率）を `##`、問いを `###`」の構成にした。新しいカテゴリ・問いは上に足す。各runの学習曲線と全20出力は末尾にまとめず、そのrunを最初に使った問いの節の末尾に置く。計画外の参考実験は1段落に収める
+- `runs/` はディレクトリごとcommitしない。model.pt を入れないなら config.json や metrics.json だけ残しても再現できないため。残したい数値や生成結果は `evaluation-results.md` に書く
 - `load_run` は復元だけを行い、`model.eval()` は生成・評価する側で呼ぶ。読み込んだモデルを何に使うかは呼び出し側が決めることなので
 - `generate.py` のロジットの説明は、学習後のモデルに「日本の首都は」を入れて観察した実値の表にした。観察に使ったスクリプトは `tmp/show_logits.py`（commitしない）
 - 保存・読み込みは `train.py` ではなく `checkpoint.py` に分けた。`generate` が `train.py` を読み込むと「生成に訓練が要る」ように見えるため
@@ -55,17 +58,20 @@ Stage 3（1層1ヘッドの学習）の学習履歴保存・学習後評価・lo
 
 ## Stage 4：複数層
 
-- [ ] `Config.n_layers` と `GPTModel`
-- [ ] `n_layers=1` が `OneLayerOneHeadGPT` と一致することを確認
-- [ ] 1・2・4層の比較（`experiments/`）
+- [x] `Config.n_layers` と `OneHeadGPT`。`main.py train` と `checkpoint.py` を対応させる（2026-09-27）
+- [x] `n_layers=1` が `OneLayerOneHeadGPT` と一致することを確認（同seedのパラメータ・logits・勾配、既存runの重みを流し込んだ全バッチloss。`tmp/check_gpt_model.py`、2026-09-27）
+- [x] 4層を学習・評価し、1層の基準runと比較（`l4h1-d128-s5000-lr1e-3`、`evaluation-results.md`、2026-09-27）
+- [x] 1層を20,000stepで学習し、4層5,000stepと比べる（`l1h1-d128-s20000-lr1e-3`、2026-09-27）
+- [ ] 2層を学習・評価し、1・4層と並べる
+- [ ] 4層のrunで層ごとのhidden stateを観察
 - [ ] 結果と考察を記録
 
 ## Stage 5：Multi-head Attention
 
 - [ ] `MultiHeadAttentionWrapper`
-- [ ] `MultiHeadAttention`（分割方式）と `Config.n_heads`
-- [ ] `n_heads=1` で結果が変わらないことを確認
-- [ ] 1・2・4ヘッドの比較（`experiments/`）
+- [ ] `MultiHeadAttention`（分割方式）と `Config.n_heads`、`GPTModel`
+- [ ] `n_heads=1` で `OneHeadGPT` と結果が変わらないことを確認
+- [ ] 1・2・4ヘッドの比較（`config.py` を手で変更）
 - [ ] ヘッドごとのAttention weightの観察
 - [ ] 結果と考察を記録
 
@@ -159,7 +165,7 @@ Stage 3（1層1ヘッドの学習）の学習履歴保存・学習後評価・lo
 - 手動確認：全20出力を同じ条件の64次元モデルと見比べ、学習曲線のPNGを開いて軸・ラベル・lossの推移を確認した
 - 自動確認：設定差分がd_modelだけであること、保存した語彙・評価token数・生成条件の一致、26時点の学習履歴が有限値であることを確認した。モデルを再読み込みして全20出力を再生成し、保存済み結果との完全一致も確認した
 
-現在の設定は128次元。Stage 4・5で採用する幅は未決定で、決めた幅を層数・ヘッド数の比較中は固定する。詳細と全20出力は `evaluation-results.md` に残した。
+この結果を踏まえ、Stage 4・5の幅は128に決めた（2026-09-27）。詳細と全20出力は `evaluation-results.md` に残した。
 
 ### Stage 3：Token embeddingの地図（2026-09-26）
 
@@ -184,3 +190,30 @@ Stage 3（1層1ヘッドの学習）の学習履歴保存・学習後評価・lo
 - 「の」は6文とも予測が平坦（最大0.02）で近傍も名詞に続く「の」ばかりになり、文脈でほとんど変わらない
 - 予測上位に前文の末尾の文字（楽しもう→う、受領した→し）が入る。ヘッドが前の文字を写している可能性があり、Attentionの重みを見るときに確かめる
 - 特殊トークンは `<|endoftext|>` を「␃」、改行を「␤」、`<|unk|>` を「�」の1文字にして、前後の文字を切り出す添字がずれないようにした
+
+### Stage 4：OneHeadGPT と1層の一致確認（2026-09-27）
+
+`Config.n_layers`（既定1）を足し、`TransformerBlock` を `nn.Sequential` に `n_layers` 個並べた `OneHeadGPT` を `gpt.py` に追加した。`main.py train` は `OneHeadGPT` で学習し、`checkpoint.load_run` はクラス名で `OneLayerOneHeadGPT` と `OneHeadGPT` を組み立て分ける。既存3runのローカルの `config.json` には `"n_layers": 1` を手で足した。クラス名は最初 `SingleHeadGPT` にしたが、`OneLayerOneHeadGPT` と語をそろえて `OneHeadGPT` に改名した。Stage 5のMulti-head版は `GPTModel` にする。
+
+`tmp/check_gpt_model.py`（commitしない）で `n_layers=1` の `OneHeadGPT` が `OneLayerOneHeadGPT` と同じものであることを確かめた。
+
+- 同じseed（42）で作ると、パラメータ数1,251,712・17個のパラメータの初期値がすべて一致。パラメータの作られる順番が同じなので乱数の消費も同じになる。`state_dict` のキーは `trf_block.` と `trf_blocks.0.` で違うだけ
+- ランダムな入力 `[2, 16]` のlogitsが完全一致（`torch.equal`）。cross entropyで `backward` した勾配も全パラメータで完全一致。forwardとbackwardが同じなら学習の経過も同じになるので、1層は学習し直さない
+- `l1h1-d128-s5000-lr1e-3` の重みをキー名を付け替えて `OneHeadGPT` に流し込み、全バッチvalidation lossを測ると 3.3765399842247414 で、保存済みの値と小数点以下すべて一致。評価token数も657,408で同じ
+- 既存runの `generate` も変わらず動く（「日本の首都は、大阪の中には、大人の中でも、大阪では、」）
+
+### Stage 4：4層の学習（2026-09-27）
+
+`config.py` の `n_layers` を4にして `l4h1-d128-s5000-lr1e-3` を学習した。比較元は1層の `l1h1-d128-s5000-lr1e-3`。数値と全20出力は `evaluation-results.md`。
+
+- パラメータ数 1,251,712 → 1,795,840（1層あたり181,376増）。学習時間 163.2秒 → 383.9秒（約2.35倍）、評価時間 3.0秒 → 7.6秒
+- 全バッチvalidation loss 3.376540 → 3.067810（約9.1%低下）。先頭8バッチのvalidation lossは200step時点から4層が低く、差は終盤で約0.3。5,000stepでもまだ下がり続けている
+- trainとvalidationの差は約0.04〜0.1で一定。パラメータが1.4倍になっても過剰適合の気配はない
+- 幅を倍にした効果（-0.34、+670,912パラメータ）と層を4倍にした効果（-0.31、+544,128パラメータ）はlossの低下量が近い
+- greedyは「そのため、」だけの反復から抜け、「その後の人々があると思います。」のような文末まで届く句が出る。反復の単位は句から文に伸びたが消えてはいない。「学校の学校の学校」のような短い語の反復は新たに出た
+- samplingでは「プログラミングを学ぶには、」の10件中9件にIT関連語が出る（1層は4件程度）。lossの改善が「promptの話題に関係する語彙を選ぶ」ところまで届いた
+- 学習中のstep 2400で初めて「東京都」が出た（1層は5,000stepまで出ず）。ただし最終モデルのgreedyには出ない
+
+### Stage 4：1層のstepを増やせば4層に届くか（2026-09-27）
+
+参考実験。「4層の差はstep不足では」を確かめるため、1層・128次元を20,000stepで学習した（`l1h1-d128-s20000-lr1e-3`、677.2秒）。全バッチvalidation lossは3.113614で4層5,000stepの3.067810に届かず、trainを約14周しても過剰適合せず、greedyの反復も変わらなかった。事前の「等比で縮むなら3.20止まり」の予想は外れ、減り幅は等比より遅く縮む。学習中に `SingleHeadGPT` を `OneHeadGPT` に改名したため、このrunの `config.json` の `model` は手で直した。
