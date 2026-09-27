@@ -4,11 +4,12 @@
 
 ## 現在の作業
 
-Stage 4（複数層）を進行中（2026-09-27）。`OneHeadGPT`（`n_layers` 可変・1ヘッド）を実装し、4層の学習・評価と、参考実験の1層20,000stepまで完了。残りは2層の学習、4層のhidden stateの観察、記録の更新。`config.py` は `n_layers=1`・`steps=5000` に戻してある。固定10promptの学習前出力は未記録。
+Stage 4（複数層）を進行中（2026-09-27）。`OneHeadGPT`（`n_layers` 可変・1ヘッド）を実装し、4層の学習・評価と、参考実験の1層20,000stepまで完了。4層のhidden stateの観察と128次元のembeddingの比較も記録済み（`visualization-results.md`）。残りは2層の学習と記録の更新。`config.py` は `n_layers=1`・`steps=5000` に戻してある。固定10promptの学習前出力は未記録。
 
 ## 作業の決め事
 
 - `evaluation-results.md` は「変えた条件のカテゴリ（層数・幅・更新回数と学習率）を `##`、問いを `###`」の構成にする。新しいカテゴリ・問いは上に足す。各runの学習曲線と全20出力は末尾にまとめず、そのrunを最初に使った問いの節の末尾に置く。計画外の参考実験は1段落に収める
+- `visualization-results.md` も同じ構成にする。変えた条件（層数・幅）を `##`、「変えたら内部表現がどう変わったか」を `###` にし、1つの節でhidden stateとtoken embeddingの両方を使う。条件を変える前の1モデルだけの観察は「基準モデル」のカテゴリに置く。見出しに日付は書かない（別の日にやっても条件は変わらない）。節の見出しは結論が読めるように書き、詳細な表は見出しと最初の段落のあとに置く
 - `runs/` をcommitしないのは、model.pt を入れないなら config.json や metrics.json だけ残しても再現できないため
 - `load_run` は復元だけを行い、`model.eval()` は生成・評価する側で呼ぶ。読み込んだモデルを何に使うかは呼び出し側が決めることなので
 - `generate.py` のロジットの説明は、学習後のモデルに「日本の首都は」を入れて観察した実値の表にした。観察に使ったスクリプトは `tmp/show_logits.py`（commitしない）
@@ -60,7 +61,7 @@ Stage 4（複数層）を進行中（2026-09-27）。`OneHeadGPT`（`n_layers` �
 - [x] 4層を学習・評価し、1層の基準runと比較（`l4h1-d128-s5000-lr1e-3`、`evaluation-results.md`、2026-09-27）
 - [x] 1層を20,000stepで学習し、4層5,000stepと比べる（`l1h1-d128-s20000-lr1e-3`、2026-09-27）
 - [ ] 2層を学習・評価し、1・4層と並べる
-- [ ] 4層のrunで層ごとのhidden stateを観察
+- [x] 4層のrunで層ごとのhidden stateを観察し、128次元のembeddingも1層と比較（`visualization-results.md`、2026-09-27）
 - [ ] 結果と考察を記録
 
 ## Stage 5：Multi-head Attention
@@ -204,3 +205,10 @@ Stage 4（複数層）を進行中（2026-09-27）。`OneHeadGPT`（`n_layers` �
 ### Stage 4：1層のstepを増やせば4層に届くか（2026-09-27）
 
 参考実験。「4層の差はstep不足では」を確かめるため、1層・128次元を20,000stepで学習した（`l1h1-d128-s20000-lr1e-3`、677.2秒）。全バッチvalidation lossは3.113614で4層5,000stepの3.067810に届かず、trainを約14周しても過剰適合せず、greedyの反復も変わらなかった。事前の「等比で縮むなら3.20止まり」の予想は外れ、減り幅は等比より遅く縮む。
+
+### Stage 4：4層のhidden stateと128次元のembedding（2026-09-27）
+
+`visualize-hidden-states` と `visualize-embeddings` は `model.modules()` から `TransformerBlock` を拾うので、4層の `OneHeadGPT` にコード変更なしで動いた。HTMLの層ボタンもLayer 0〜4で描画される。観察は `visualization-results.md` の「層数」と「幅 d_model」の節。
+
+- 埋め込みの近傍を読むときは偶然の水準を先に出す。ランダムな1,632本のベクトルで近傍1位の平均は64次元で0.41、128次元で0.30。実際の埋め込みの平均と同じなので、上位10の大半は偶然
+- 近傍の理由は、訓練データの前後1文字の出現分布の類似度と、`out_head` の行どうしの類似度で確かめた（`tmp/why_neighbors.py`、commitしない）。`tok_emb` と `out_head` は別の行列で、持っている情報が違う
