@@ -3,9 +3,9 @@ class Config:
         # 1tokenを表すベクトルの次元数（shapeの D）。パラメータ数を最も大きく左右する
         self.d_model: int = 128
         # 積むTransformerブロックの数。ブロックごとに別のパラメータを持つ
-        self.n_layers: int = 1
+        self.n_layers: int = 4
         # Attentionのヘッド数。d_model をこの数で等分して各ヘッドに割り当てる
-        self.n_heads: int = 1
+        self.n_heads: int = 4
         # 一度にモデルへ入れる系列の最大token数（shapeの T）
         self.context_length: int = 256
         # 1stepの更新で同時に学習する系列の数（shapeの B）
