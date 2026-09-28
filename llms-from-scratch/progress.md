@@ -4,11 +4,11 @@
 
 ## 現在の作業
 
-Stage 5（Multi-head Attention）を進行中（2026-09-28）。`Config.n_heads`・`MultiHeadAttention`（`CausalAttention` を並べて連結 + `out_proj`）・`GPT` を実装し、`main.py train` は `GPT` で学習する。次は4層・128次元で1ヘッドと4ヘッドを学習して比べる。`config.py` は `n_layers=1`・`n_heads=1`・`steps=5000`。固定10promptの学習前出力は未記録。
+Stage 5（Multi-head Attention）を進行中（2026-09-28）。4層・128次元で1ヘッド（`l4h1-d128-s5000-lr1e-3-outproj`）と4ヘッド（`l4h4-d128-s5000-lr1e-3`）を学習・評価し、`evaluation-results.md` の「ヘッド数」に記録した。次は4ヘッドのrunでヘッドごとのAttention weightを観察する。Stage 6の下見としてGPT-2 smallの形（`l12h12-d768-s5000-lr1e-3`）も学習し、`evaluation-results.md` の「モデル規模」に記録した。`config.py` は `d_model=128`・`n_layers=4`・`n_heads=4`・`steps=5000` に戻してある。固定10promptの学習前出力は未記録。
 
 ## 作業の決め事
 
-- `evaluation-results.md` は「変えた条件のカテゴリ（層数・幅・更新回数と学習率）を `##`、問いを `###`」の構成にする。新しいカテゴリ・問いは上に足す。各runの学習曲線と全20出力は末尾にまとめず、そのrunを最初に使った問いの節の末尾に置く。計画外の参考実験は1段落に収める
+- `evaluation-results.md` は「変えた条件のカテゴリ（層数・幅・更新回数と学習率）を `##`、問いへの答えが読める見出しを `###`」の構成にする。各節は結論の段落、設定の段落、詳細の順に書く。新しいカテゴリ・節は上に足す。各runの学習曲線と全20出力は末尾にまとめず、そのrunを最初に使った問いの節の末尾に置く。計画外の参考実験は1段落に収める
 - `visualization-results.md` も同じ構成にする。変えた条件（層数・幅）を `##`、「変えたら内部表現がどう変わったか」を `###` にし、1つの節でhidden stateとtoken embeddingの両方を使う。条件を変える前の1モデルだけの観察は「基準モデル」のカテゴリに置く。見出しに日付は書かない（別の日にやっても条件は変わらない）。節の見出しは結論が読めるように書き、詳細な表は見出しと最初の段落のあとに置く
 - `runs/` をcommitしないのは、model.pt を入れないなら config.json や metrics.json だけ残しても再現できないため
 - `load_run` は復元だけを行い、`model.eval()` は生成・評価する側で呼ぶ。読み込んだモデルを何に使うかは呼び出し側が決めることなので
@@ -72,12 +72,13 @@ Stage 5（Multi-head Attention）を進行中（2026-09-28）。`Config.n_heads`
 - [x] `TransformerBlock` にAttentionを外から渡す形に変える。既存6runの `config.json` に `"n_heads": 1` を足し、旧コードと同seedの初期値・logits、保存済みrunの全バッチloss（3.376540）と生成が一致することを確認（2026-09-27）
 - [x] `GPT`（`OneHeadGPT` のAttentionを `MultiHeadAttention` にしたもの）を作り、`checkpoint.load_run`・`main.py train` を対応させる（2026-09-28）
 - [x] `n_heads=1` の `GPT` に `OneHeadGPT` の重みを流し込み、`out_proj` を単位行列にすると一致することを確認。同seed初期値のlogitsは最大差0.0、4層runの全バッチvalidation lossは保存値 3.067810 と一致。パラメータ数の差は `out_proj` 4層分の 66,048。`tmp/check_gpt_model_heads.py`（2026-09-28）
-- [ ] 4層で1ヘッドと4ヘッドを比較（`config.py` を手で変更）
+- [x] 4層で1ヘッドと4ヘッドを比較（`l4h1-d128-s5000-lr1e-3-outproj`・`l4h4-d128-s5000-lr1e-3`。`evaluation-results.md` の「ヘッド数」、2026-09-28）
 - [ ] ヘッドごとのAttention weightの観察
 - [ ] 結果と考察を記録
 
 ## Stage 6：その後の候補
 
+- [x] モデル拡大の下見：GPT-2 smallの形（12層・12ヘッド・768次元）を5,000step学習し、lossと生成と過剰適合の出方を見た（`l12h12-d768-s5000-lr1e-3`、2026-09-28）
 - [ ] Stage 5の結果を見て、付録D・第7章・モデル拡大のどれをやるか決める
 
 ## 実行して分かったこと
@@ -240,3 +241,28 @@ Stage 5（Multi-head Attention）を進行中（2026-09-28）。`Config.n_heads`
 - `n_heads=1` は `out_proj` を無効化すると `CausalAttention` と完全一致
 - パラメータ数は1・2・4ヘッドとも 65,664 で変わらない。`CausalAttention` の 49,152 との差 16,512 は `out_proj`（128×128 + bias 128）
 - `d_out=128` を3ヘッドにしようとすると `ValueError`
+
+### Stage 5：4層で1ヘッドと4ヘッドの比較（2026-09-28）
+
+`config.py` を `n_layers=4` にして `GPT` を `n_heads=1` と `n_heads=4` で学習した。run名は、`OneHeadGPT` の4層run `l4h1-d128-s5000-lr1e-3` と区別するため、1ヘッドの `GPT` に `-outproj` を付けた。数値と全20出力は `evaluation-results.md` の「ヘッド数」。
+
+- パラメータ数は1ヘッドも4ヘッドも1,861,888で同じ。`OneHeadGPT` の4層より `out_proj` 4層分の66,048多い
+- 全バッチvalidation lossは `OneHeadGPT` 3.067810、1ヘッドの `GPT` 3.107401、4ヘッドの `GPT` 3.094512。ヘッド数の差は0.013で、層数（0.31）・幅（0.34）の効果より1桁以上小さい。`out_proj` を足すと0.04悪くなった。学習seedを変えたばらつきを測っていないので、どちらの差も効果とは読まない
+- 先頭8バッチの曲線は3runともstep 800まで重なる。`OneHeadGPT` はstep 1000から先に下がり、`GPT` の2runは4000stepまで1ヘッドがわずかに低く、4200step以降で4ヘッドが下回る
+- 学習時間はMPSで1ヘッド142.3秒、4ヘッド170.1秒。ヘッドを順に計算するので呼び出し回数が増える分
+- 生成は反復の単位が変わる（「そのため、そのためには」→「それは、それぞれの人が」→「学習塾の学習」・引用符「」）が、文をまたいで意味がつながらないのは3runとも同じ。4ヘッドのgreedyはID04で「学ぶ」を拾って「学習塾」で埋めた。samplingのIT関連語は9件・6件・4件と減った
+- 同じseedのsamplingは別のモデルでも書き出しが一致しやすい（seed 42「癒している。」など）。乱数の列が同じなので、候補の確率の付け方が似ている間は同じ文字が選ばれる
+- ヘッドを分けた効果はlossでは見えないので、次のタスクでヘッドごとのAttention weightを見て確かめる
+
+### Stage 6の下見：GPT-2 smallの形で学習（2026-09-28）
+
+`config.py` を `d_model=768`・`n_layers=12`・`n_heads=12` にして `l12h12-d768-s5000-lr1e-3` を学習した。context 256・batch 16・5,000step・学習率0.001・語彙4,052は同じ。数値と全20出力は `evaluation-results.md` の「モデル規模」。
+
+- 事前に `tmp/bench_gpt2_small.py`（commitしない）で乱数バッチの1stepを測り、0.85秒・GPUメモリ1.5GB・5,000stepで約71分と見積もってから回した。実際の学習時間は4,632.3秒（77分、評価・生成込み）。`model.pt` は404MB
+- パラメータ数91,448,832（4層4ヘッドの約49倍）。全バッチvalidation lossは3.094512 → 2.681605。評価はCPUで210.5秒（4層は10.5秒）
+- 学習率0.001・warmupなしでも序盤に跳ねなかった
+- 初めて過剰適合が見えた。trainは1,447stepで1周（23,163窓 ÷ batch 16、端数切り捨て）、5,000stepで約3.5周。3周目に入るstep 3000と4周目のstep 4400で、trainの先頭8バッチのlossだけ段差で下がり、validationは止まる。step 4600でvalidationが初めて上がり（2.604 → 2.619）、最終の差は0.22。4層以下では3.5周しても差が開かなかった
+- 過剰適合してもtrainの文書をそのまま吐きはしない。trainの先頭3文書の先頭40文字からgreedyで続きを生成すると、実際の続きとの先頭一致は0〜1文字で4層と同じ（`tmp/check_memorization.py`、commitしない）。差0.22は文章の丸暗記ではなく、trainに出た語の組み合わせを覚える方向に出ている
+- 生成はgreedyの10promptすべてが文法的に完結した文になり、「健康を保つためには、健康に役立てています」「英語を話すことができます。英語教室」とpromptの語を保って続ける。一方、「健康的な健康的な」「英会話\n英会話」の短い反復と、文をまたぐと同じことを言い直す問題は残る。「日本の首都は」に東京は出ない
+- 学習中の保存は `train_model` にないので、validationが最良だったstep 4400付近のモデルは残っていない。Stage 6でモデルを大きくするなら、validation最良時点の別保存（`runs/<run_name>/best/`）とdropout、またはデータ増を検討する。データを足すと語彙が変わって既存runと比べられなくなるので、別ディレクトリ（`data/fineweb-japanese-20k/` など）で別の比較群にする
+- 75分の学習はBashのバックグラウンド実行（上限10分）では打ち切られる可能性があるので、`nohup` で切り離して `tmp/train-l12h12.log` に書き、`tail -f` で監視した
