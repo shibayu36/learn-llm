@@ -147,11 +147,11 @@ def build_embedding_map(
 # ので、Layer 0（token埋め込み＋位置埋め込み）はどの文でも同じベクトルになり、層を
 # 通ったあとの違いは前にある文脈の違いだけから生まれる
 
-# 近い文脈を探す範囲。validationの先頭からこの数のtokenだけ使う。全層のベクトルを
-# メモリに持つので全体は使わず、類似度0.9以上の近傍が十分に出る量にとどめた
-NEIGHBOR_CORPUS_TOKENS = 40000
 # 予測・近傍とも上位何件を出すか
 TOP_K = 10
+# 近傍の「偶然の水準」。全位置の類似度の上位 1/この値（0.1%）の順位にある値を出し、
+# 上位10がこれに近ければ偶然の範囲と読む
+CHANCE_RANK_DIVISOR = 1000
 
 
 def collect_hidden_states(model: nn.Module, token_ids: list[int]) -> list[torch.Tensor]:
@@ -228,32 +228,116 @@ def display_token(tokenizer: CharTokenizer, token_id: int) -> str:
     return token
 
 
-def collect_neighbor_corpus(
-    model: nn.Module, token_ids: list[int], context_length: int
-) -> tuple[list[int], list[torch.Tensor]]:
-    """近い文脈を探す土台を作る。
+def normalize_rows(vectors: torch.Tensor) -> torch.Tensor:
+    """各行をノルムで割り、コサイン類似度を内積で測れるようにする。"""
+    return vectors / vectors.norm(dim=1, keepdim=True)
 
-    context_length幅の非重複窓ごとにforwardし、層ごとに全窓のベクトルを
-    [コーパスtoken数, D] にまとめ、コサイン類似度を内積で測れるよう各行を
-    ノルムで割って正規化する。窓に満たない末尾のtokenは捨てる
+
+class TopK:
+    """問い合わせごとの上位 k 件（類似度とコーパス上の位置）を、窓を見るたびに更新して持つ。
+
+    merge のたびにそれまでの上位と新しい窓を横に並べて上位 k 件を取り直すので、
+    全位置の類似度を溜めなくてよい
     """
-    corpus_token_ids: list[int] = []
-    chunks_by_layer: list[list[torch.Tensor]] = []
-    for start in range(0, len(token_ids) - context_length + 1, context_length):
+
+    def __init__(self, num_queries: int, k: int) -> None:
+        self.k = k
+        self.values = torch.full((num_queries, k), float("-inf"))
+        self.positions = torch.zeros((num_queries, k), dtype=torch.long)
+
+    def merge(self, similarities: torch.Tensor, positions: torch.Tensor) -> None:
+        merged_values = torch.cat([self.values, similarities], dim=1)
+        merged_positions = torch.cat([self.positions, positions], dim=1)
+        top = torch.topk(merged_values, self.k, dim=1)
+        self.values = top.values
+        # gather は各行について、top.indices が指す列の値を merged_positions から拾う
+        self.positions = torch.gather(merged_positions, 1, top.indices)
+
+
+# 近い文脈は対象の文字との関係で3つに分けて出す。大きいモデルでは同じ単語の位置が上位を
+# 埋めて他が見えなくなるため。文字Tokenizerなので「直前の文字＋対象の文字」を単語とみなす
+#   same_bigram: 直前の文字も対象の文字も同じ（銀行の行）。単語を認識できているかを読む
+#   same_char:   対象の文字は同じで直前が違う（旅行・進行の行）。文字を共有する別の単語との距離を読む
+#   other_char:  対象の文字が違う（預金の金、融資の資）。どの単語の仲間になったかを読む
+NEIGHBOR_GROUPS = ["same_bigram", "same_char", "other_char"]
+
+
+def search_neighbors(
+    model: nn.Module,
+    queries_by_layer: list[torch.Tensor],
+    query_token_ids: list[int],
+    query_prev_token_ids: list[int],
+    token_ids: list[int],
+    context_length: int,
+) -> tuple[list[int], int, list[TopK], dict[str, list[TopK]], dict[str, list[int]]]:
+    """コーパスの全位置から、層ごとに各問い合わせベクトル（queries_by_layer[layer] は [Q, D]）と
+    類似度が高い位置を探す。
+
+    context_length幅の非重複窓ごとにforwardし、その場で上位だけを残す。全層・全位置の
+    ベクトルを溜めると12層・768次元では26GBになるため。残すのは、偶然の水準を読むための
+    全体の上位 keep 件（TOP_K と コーパス長 / CHANCE_RANK_DIVISOR の大きい方）と、
+    NEIGHBOR_GROUPS の分類ごとの上位 TOP_K 件。分類には各問い合わせの対象の文字
+    query_token_ids と直前の文字 query_prev_token_ids を使う。
+    返すのは、使ったtoken列・keep・層ごとの全体の上位・分類ごとの層ごとの上位・
+    分類ごとの問い合わせごとの件数。窓に満たない末尾のtokenは捨てる
+    """
+    num_windows = (len(token_ids) - context_length) // context_length + 1
+    num_tokens = num_windows * context_length
+    keep = max(TOP_K, num_tokens // CHANCE_RANK_DIVISOR)
+    num_layers = len(queries_by_layer)
+    num_queries = queries_by_layer[0].shape[0]
+
+    normalized_queries: list[torch.Tensor] = []
+    for queries in queries_by_layer:
+        normalized_queries.append(normalize_rows(queries))
+    # [Q, 1] と [1, T] を == で比べると、全組み合わせの [Q, T] の表になる（ブロードキャスト）
+    query_tokens = torch.tensor(query_token_ids).unsqueeze(1)
+    query_prevs = torch.tensor(query_prev_token_ids).unsqueeze(1)
+
+    overall: list[TopK] = []
+    for _ in range(num_layers):
+        overall.append(TopK(num_queries, keep))
+    by_group: dict[str, list[TopK]] = {}
+    counts: dict[str, torch.Tensor] = {}
+    for group in NEIGHBOR_GROUPS:
+        by_group[group] = []
+        for _ in range(num_layers):
+            by_group[group].append(TopK(num_queries, TOP_K))
+        counts[group] = torch.zeros(num_queries, dtype=torch.long)
+
+    for start in range(0, num_tokens, context_length):
         window = token_ids[start:start + context_length]
         layer_vectors = collect_hidden_states(model, window)
-        if len(chunks_by_layer) == 0:
-            for _ in layer_vectors:
-                chunks_by_layer.append([])
-        for layer in range(len(layer_vectors)):
-            chunks_by_layer[layer].append(layer_vectors[layer])
-        corpus_token_ids.extend(window)
+        # この窓の各位置の、コーパス全体での位置番号。[T] を [Q, T] に広げる
+        positions = torch.arange(start, start + context_length).expand(num_queries, -1)
 
-    normalized_by_layer: list[torch.Tensor] = []
-    for chunks in chunks_by_layer:
-        matrix = torch.cat(chunks)
-        normalized_by_layer.append(matrix / matrix.norm(dim=1, keepdim=True))
-    return corpus_token_ids, normalized_by_layer
+        # 窓の先頭の直前の文字は前の窓の末尾。コーパス先頭には直前がないので -1
+        window_tokens = torch.tensor(window).unsqueeze(0)
+        prev_of_first = token_ids[start - 1] if start > 0 else -1
+        prev_tokens = torch.tensor([prev_of_first] + window[:-1]).unsqueeze(0)
+        same_char = window_tokens == query_tokens
+        same_prev = prev_tokens == query_prevs
+        masks = {
+            "same_bigram": same_char & same_prev,
+            "same_char": same_char & ~same_prev,
+            "other_char": ~same_char,
+        }
+        for group in NEIGHBOR_GROUPS:
+            counts[group] += masks[group].sum(dim=1)
+
+        for layer in range(num_layers):
+            # [Q, D] @ [D, T] → [Q, T]。問い合わせごとに、この窓の全位置との類似度
+            similarities = normalized_queries[layer] @ normalize_rows(layer_vectors[layer]).T
+            overall[layer].merge(similarities, positions)
+            for group in NEIGHBOR_GROUPS:
+                # 分類に入らない位置の類似度を -inf にして、上位に選ばれないようにする
+                masked = similarities.masked_fill(~masks[group], float("-inf"))
+                by_group[group][layer].merge(masked, positions)
+
+    counts_as_lists: dict[str, list[int]] = {}
+    for group in NEIGHBOR_GROUPS:
+        counts_as_lists[group] = counts[group].tolist()
+    return token_ids[:num_tokens], keep, overall, by_group, counts_as_lists
 
 
 def predict_next_char(model: nn.Module, tokenizer: CharTokenizer, vector: torch.Tensor) -> list[dict]:
@@ -271,18 +355,21 @@ def predict_next_char(model: nn.Module, tokenizer: CharTokenizer, vector: torch.
     return predictions
 
 
-def find_neighbors(
+def format_neighbors(
     tokenizer: CharTokenizer,
     corpus_token_ids: list[int],
-    normalized_corpus: torch.Tensor,
-    vector: torch.Tensor,
+    values: torch.Tensor,
+    positions: torch.Tensor,
 ) -> list[dict]:
-    """コーパスの中から、コサイン類似度が高い文脈を前後の文字つきで返す。"""
-    similarities = normalized_corpus @ (vector / vector.norm())
-    top = torch.topk(similarities, TOP_K)
+    """search_neighbors の1問い合わせぶんの結果から、上位 TOP_K 件を前後の文字つきで返す。
+
+    該当する位置が TOP_K 件に満たないと類似度が -inf のまま残るので、そこで打ち切る
+    """
     neighbors: list[dict] = []
     for k in range(TOP_K):
-        position = top.indices[k].item()
+        if values[k].item() == float("-inf"):
+            break
+        position = positions[k].item()
         before = ""
         for token_id in corpus_token_ids[max(0, position - 10):position]:
             before += display_token(tokenizer, token_id)
@@ -290,7 +377,7 @@ def find_neighbors(
         for token_id in corpus_token_ids[position + 1:position + 4]:
             after += display_token(tokenizer, token_id)
         neighbors.append({
-            "similarity": round(top.values[k].item(), 4),
+            "similarity": round(values[k].item(), 4),
             "before": before,
             "token": display_token(tokenizer, corpus_token_ids[position]),
             "after": after,
@@ -309,53 +396,82 @@ def build_hidden_state_tables(
     """対象位置・文・層ごとに、次の文字の予測上位（logit lens）と近い文脈の上位をまとめる。
 
     予測は各層のベクトルをfinal_norm→out_head→softmaxに通した確率の上位。
-    近い文脈は、corpus_token_idsから作ったコーパスとのコサイン類似度の上位
+    近い文脈は、corpus_token_ids の全位置とのコサイン類似度の上位を NEIGHBOR_GROUPS で
+    分けたものと、偶然の水準
     """
-    corpus_tokens, normalized_corpus_by_layer = collect_neighbor_corpus(
-        model, corpus_token_ids[:NEIGHBOR_CORPUS_TOKENS], context_length
-    )
-
+    token_ids_by_text: list[list[int]] = []
     hidden_states_by_text: list[list[torch.Tensor]] = []
     for text in texts:
         token_ids = tokenizer.encode(text)
         if tokenizer.unk_id in token_ids:
             raise ValueError(f"語彙にない文字を含む: {text}")
+        token_ids_by_text.append(token_ids)
         # 対象位置ごとに forward し直すと無駄なので、文ごとに1回だけ通す
         hidden_states_by_text.append(collect_hidden_states(model, token_ids))
 
     num_layers = len(hidden_states_by_text[0])
 
-    targets: list[dict] = []
+    # 近傍探索はコーパスを1回通す間に全問い合わせを処理するので、対象位置×文のベクトルを
+    # 先に [位置, 文, 層, D] にそろえる。問い合わせ番号は q = 位置の添字 × 文の数 + 文の添字
+    vectors_by_target: list[torch.Tensor] = []
+    query_token_ids: list[int] = []
+    query_prev_token_ids: list[int] = []
     for position in target_positions:
-        sentences: list[dict] = []
         vectors_by_sentence: list[torch.Tensor] = []
         for s in range(len(texts)):
             layer_vectors: list[torch.Tensor] = []
             for layer_states in hidden_states_by_text[s]:
                 layer_vectors.append(layer_states[position])
             vectors_by_sentence.append(torch.stack(layer_vectors))
+            query_token_ids.append(token_ids_by_text[s][position])
+            query_prev_token_ids.append(token_ids_by_text[s][position - 1] if position > 0 else -1)
+        vectors_by_target.append(torch.stack(vectors_by_sentence))
+    all_vectors = torch.stack(vectors_by_target)
 
+    # [Q, 層, D] に平らにし、層ごとの [Q, D] に分ける
+    flat_vectors = all_vectors.reshape(-1, num_layers, all_vectors.shape[-1])
+    queries_by_layer: list[torch.Tensor] = []
+    for layer in range(num_layers):
+        queries_by_layer.append(flat_vectors[:, layer])
+    corpus_tokens, keep, overall, by_group, counts = search_neighbors(
+        model, queries_by_layer, query_token_ids, query_prev_token_ids,
+        corpus_token_ids, context_length,
+    )
+
+    targets: list[dict] = []
+    for p in range(len(target_positions)):
+        position = target_positions[p]
+        sentences: list[dict] = []
+        for s in range(len(texts)):
+            q = p * len(texts) + s
             layers: list[dict] = []
             for layer in range(num_layers):
-                vector = layer_vectors[layer]
+                neighbors: dict[str, list[dict]] = {}
+                for group in NEIGHBOR_GROUPS:
+                    top = by_group[group][layer]
+                    neighbors[group] = format_neighbors(
+                        tokenizer, corpus_tokens, top.values[q], top.positions[q]
+                    )
                 layers.append({
-                    "predictions": predict_next_char(model, tokenizer, vector),
-                    "neighbors": find_neighbors(
-                        tokenizer, corpus_tokens, normalized_corpus_by_layer[layer], vector
-                    ),
+                    "predictions": predict_next_char(model, tokenizer, all_vectors[p, s, layer]),
+                    "neighbors": neighbors,
+                    "chance_similarity": round(overall[layer].values[q, keep - 1].item(), 4),
                 })
+            neighbor_counts: dict[str, int] = {}
+            for group in NEIGHBOR_GROUPS:
+                neighbor_counts[group] = counts[group][q]
             sentence_text = texts[s]
             sentences.append({
                 "text": sentence_text,
                 "next_char": sentence_text[position + 1],
+                "neighbor_counts": neighbor_counts,
                 "layers": layers,
             })
 
-        # [文, 層, D] にまとめ、層ごとに文どうしのコサイン類似度を求める
-        vectors = torch.stack(vectors_by_sentence)
+        # 層ごとに文どうしのコサイン類似度を求める
         similarities: list[list[list[float]]] = []
         for layer in range(num_layers):
-            similarities.append(similarity_matrix(vectors[:, layer]))
+            similarities.append(similarity_matrix(all_vectors[p, :, layer]))
 
         targets.append({
             "position": position,
@@ -367,7 +483,8 @@ def build_hidden_state_tables(
     return {
         "num_layers": num_layers,
         "top_k": TOP_K,
-        "corpus": {"num_tokens": len(corpus_tokens)},
+        "neighbor_groups": NEIGHBOR_GROUPS,
+        "corpus": {"num_tokens": len(corpus_tokens), "chance_rank": keep},
         "targets": targets,
     }
 

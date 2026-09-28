@@ -4,7 +4,7 @@
 
 ## 現在の作業
 
-Stage 5（Multi-head Attention）を進行中（2026-09-28）。4層・128次元で1ヘッド（`l4h1-d128-s5000-lr1e-3-outproj`）と4ヘッド（`l4h4-d128-s5000-lr1e-3`）を学習・評価し、`evaluation-results.md` の「ヘッド数」に記録した。次は4ヘッドのrunでヘッドごとのAttention weightを観察する。Stage 6の下見としてGPT-2 smallの形（`l12h12-d768-s5000-lr1e-3`）も学習し、`evaluation-results.md` の「モデル規模」に記録した。`config.py` は `d_model=128`・`n_layers=4`・`n_heads=4`・`steps=5000` に戻してある。固定10promptの学習前出力は未記録。
+Stage 5（Multi-head Attention）を進行中（2026-09-28）。4層・128次元で1ヘッド（`l4h1-d128-s5000-lr1e-3-outproj`）と4ヘッド（`l4h4-d128-s5000-lr1e-3`）を学習・評価し、`evaluation-results.md` の「ヘッド数」に記録した。次は4ヘッドのrunでヘッドごとのAttention weightを観察する。Stage 6の下見としてGPT-2 smallの形（`l12h12-d768-s5000-lr1e-3`）も学習し、`evaluation-results.md` の「モデル規模」に記録した。同runの `visualize-hidden-states`・`visualize-embeddings` は生成済みで、近傍コーパスをvalidation全体に広げた（下記）。観察の `visualization-results.md` への記録は未着手。`config.py` は `d_model=128`・`n_layers=4`・`n_heads=4`・`steps=5000` に戻してある。固定10promptの学習前出力は未記録。
 
 ## 作業の決め事
 
@@ -14,6 +14,7 @@ Stage 5（Multi-head Attention）を進行中（2026-09-28）。4層・128次元
 - `load_run` は復元だけを行い、`model.eval()` は生成・評価する側で呼ぶ。読み込んだモデルを何に使うかは呼び出し側が決めることなので
 - 保存・読み込みは `train.py` ではなく `checkpoint.py` に分けた。`generate` が `train.py` を読み込むと「生成に訓練が要る」ように見えるため
 - 新しい用語が出る節では用語集 `docs/glossary.md` に追記する
+- hidden stateの「近い文脈」はvalidation全体から探し、「同じ2文字」「同じ文字で前が違う」「別の文字」の3列に分けて出す。先頭4万位置では対象の熟語が1〜2回しか出ず、全体にすると同じ単語だけで上位10が埋まるため。全層のベクトルは溜めず、窓ごとに上位だけ残す（`visualize.py` の `search_neighbors`）
 - optimizerは本と同じく `train_model` の外で作って渡す形のままにする。モデルとoptimizerは `.grad` を通して暗黙につながるので、optimizerは必ずそのモデルの `parameters()` で作る。Stage 6でスケジューラやパラメータのグループ分けを入れるときも外で作る
 
 ## Stage 0：部品の実装
@@ -197,3 +198,15 @@ Stage 5（Multi-head Attention）を進行中（2026-09-28）。4層・128次元
 - 事前に `tmp/bench_gpt2_small.py`（commitしない）で乱数バッチの1stepを測り、5,000stepで約71分と見積もってから回した。`model.pt` は404MB
 - 学習中の保存は `train_model` にないので、validationが最良だったstep 4400付近のモデルは残っていない。Stage 6でモデルを大きくするなら、validation最良時点の別保存（`runs/<run_name>/best/`）とdropout、またはデータ増を検討する。データを足すと語彙が変わって既存runと比べられなくなるので、別ディレクトリ（`data/fineweb-japanese-20k/` など）で別の比較群にする
 - 75分の学習はBashのバックグラウンド実行（上限10分）では打ち切られる可能性があるので、`nohup` で切り離して `tmp/train-l12h12.log` に書き、`tail -f` で監視した
+
+### Stage 6の下見：12層モデルでは「近い文脈」が読めず、コーパス拡大と3分類で直した（2026-09-28）
+
+`l12h12-d768-s5000-lr1e-3` の最終層の「近い文脈」は、銀行2件のあとに現金・日本などが偶然の水準（0.52）をわずかに超える0.55〜0.65で並び、読めなかった。原因は2つ（`tmp/check_neighbor_tail.py`、commitしない）。
+
+- 先頭39,936位置に銀行・旅行は2回、実行・発行は1回しか出ない（validation全体では55・60・58・29回）
+- 12層モデルはLayer 1の時点で銀行以外の「行」が0.59以下に落ち、「行という文字」ではなく「銀行という単語の末尾」を表す。4層モデルのLayer 1は別の熟語の「行」も0.6〜0.7で近く、上位10が「行」で埋まっていたので読めていた
+
+コーパスをvalidation全体657,408位置に広げると、今度は上位10が全部「銀行」になり、単語を認識している以上のことが読めない。そこで近傍を「同じ2文字（銀行の行、55件）」「同じ文字で前が違う（旅行・走行の行、1,132件）」「別の文字（656,221件）」の3列に分けた（`NEIGHBOR_GROUPS`）。12層モデルのLayer 12で、銀行の「行」は別の熟語の「行」（国内旅行0.63・走行0.57）より、預金・融資・金額の末尾（0.60〜0.67）に近い。観察の記録は `visualization-results.md` に「モデル規模」の節を作って行う（未着手）。
+
+- 全層のベクトルを溜めると13層×657k×768次元で約26GBになるので、窓ごとにforwardして上位だけを残す `search_neighbors` にした。旧方式と同じ39,936位置で比べ、Layer 1以降の上位は全体・分類ごととも一致（`tmp/check_search_neighbors.py`、commitしない）。Layer 0は同じ文字が同じ窓内位置にあるとベクトルが同一になり、同点の並びだけ変わる
+- 実行時間は4層で15秒、12層で3分22秒（CPU）

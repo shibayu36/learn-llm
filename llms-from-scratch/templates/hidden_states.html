@@ -110,20 +110,22 @@
   .pred-prob { font-size: 10px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 
   /* 表B: 近い文脈 */
-  table.neighbor-table { width: 100%; font-size: 12px; table-layout: auto; }
+  table.neighbor-table { width: 100%; font-size: 12px; table-layout: fixed; }
+  table.neighbor-table th.group-head { text-align: left; }
   table.neighbor-table td.context-cell {
     text-align: left;
     vertical-align: top;
-    width: 26%;
+    width: 16%;
   }
   table.neighbor-table td.neighbor-cell {
     text-align: left;
     vertical-align: top;
+    padding-right: 8px;
   }
   .neighbor-list { display: flex; flex-direction: column; gap: 2px; }
-  .neighbor-line { display: flex; gap: 8px; font-size: 11px; line-height: 1.7; }
+  .neighbor-line { display: flex; gap: 6px; font-size: 11px; line-height: 1.7; }
   .neighbor-sim {
-    flex: 0 0 3.6em;
+    flex: 0 0 3.2em;
     text-align: right;
     font-variant-numeric: tabular-nums;
     color: var(--text-secondary);
@@ -131,6 +133,15 @@
   .neighbor-context {
     font-family: "SFMono-Regular", Consolas, "Courier New", monospace;
     white-space: pre;
+    overflow: hidden;
+  }
+  .neighbor-count { font-size: 11px; color: var(--text-muted); margin-bottom: 2px; }
+  .neighbor-chance {
+    margin-top: 6px;
+    font-size: 11px;
+    line-height: 1.7;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
   }
 
   /* 表C: 文どうしのコサイン類似度 */
@@ -183,14 +194,18 @@ function renderIntro() {
   p2.appendChild(document.createTextNode(
     "「次の文字の予測」は、その層のベクトルをそのまま出力層（final_norm → out_head）に通したときの予測上位10件（logit lensという方法）。" +
     "最終層以外では、途中経過のベクトルを無理やり最終出力の形式で読んでいるだけなので、参考程度に見ること。" +
-    "「近い文脈」は、validationデータの先頭"
+    "「近い文脈」は、validationデータ全体の"
   ));
   const strong = document.createElement("strong");
   strong.textContent = numTokens;
   p2.appendChild(strong);
   p2.appendChild(document.createTextNode(
     " tokenについて同じ層のベクトルを求め、対象ベクトルとコサイン類似度が高い位置を前後の文字つきで並べたもの。" +
-    "近いのは同じ層のベクトルであって、並ぶ文字が対象と同じ文字とは限らない。"
+    "対象との関係で3列に分ける。「同じ2文字」（銀行の行）では単語を認識できているか、" +
+    "「同じ文字・前が違う」（旅行・進行の行）では文字を共有する別の単語からどれだけ離れたか、" +
+    "「別の文字」（預金の金、融資の資）ではどの単語の仲間になったかを読む。列の先頭の件数はその分類に入る位置の数。" +
+    "文の下の「偶然の水準」は、分類を問わず全位置の類似度を高い順に並べたときの上位" +
+    DATA.corpus.chance_rank.toLocaleString() + "位（0.1%）の値で、上位の類似度がこれに近ければ偶然の範囲と読む。"
   ));
 
   const p3 = document.createElement("p");
@@ -245,6 +260,13 @@ function buildNeighborLine(neighbor) {
   line.appendChild(context);
   return line;
 }
+
+// 近傍の3分類の見出し。キーは Python 側の NEIGHBOR_GROUPS と同じ
+const NEIGHBOR_GROUP_LABELS = {
+  same_bigram: "同じ2文字",
+  same_char: "同じ文字・前が違う",
+  other_char: "別の文字",
+};
 
 // ---- 対象位置ごとのセクションを組み立てる ----
 // 層を切り替えても文の並びや文脈表示は変わらないため、静的な部分は一度だけ作り、
@@ -332,26 +354,46 @@ function buildTargetSection(target, topK) {
   neighborContextHead.className = "context-head";
   neighborContextHead.textContent = "文";
   neighborHeadRow.appendChild(neighborContextHead);
-  const neighborListHead = document.createElement("th");
-  neighborListHead.textContent = "近い文脈（コサイン類似度が高い順）";
-  neighborHeadRow.appendChild(neighborListHead);
+  DATA.neighbor_groups.forEach((group) => {
+    const th = document.createElement("th");
+    th.className = "group-head";
+    th.textContent = NEIGHBOR_GROUP_LABELS[group];
+    neighborHeadRow.appendChild(th);
+  });
   neighborThead.appendChild(neighborHeadRow);
   neighborTable.appendChild(neighborThead);
 
   const neighborBody = document.createElement("tbody");
-  const neighborContainers = []; // neighborContainers[sentenceIndex] = div.neighbor-list
+  // neighborContainers[sentenceIndex][group] = div.neighbor-list、chanceEls[sentenceIndex] = 偶然の水準の値
+  const neighborContainers = [];
+  const chanceEls = [];
   sentences.forEach((sentence) => {
     const tr = document.createElement("tr");
-    tr.appendChild(buildContextCell(sentence.text, target.position));
+    const contextCell = buildContextCell(sentence.text, target.position);
+    const chance = document.createElement("div");
+    chance.className = "neighbor-chance";
+    chance.appendChild(document.createTextNode("偶然の水準 "));
+    const chanceValue = document.createElement("span");
+    chance.appendChild(chanceValue);
+    contextCell.appendChild(chance);
+    tr.appendChild(contextCell);
+    chanceEls.push(chanceValue);
 
-    const tdNeighbors = document.createElement("td");
-    tdNeighbors.className = "neighbor-cell";
-    const list = document.createElement("div");
-    list.className = "neighbor-list";
-    tdNeighbors.appendChild(list);
-    tr.appendChild(tdNeighbors);
-
-    neighborContainers.push(list);
+    const containersForSentence = {};
+    DATA.neighbor_groups.forEach((group) => {
+      const td = document.createElement("td");
+      td.className = "neighbor-cell";
+      const count = document.createElement("div");
+      count.className = "neighbor-count";
+      count.textContent = sentence.neighbor_counts[group].toLocaleString() + "件";
+      td.appendChild(count);
+      const list = document.createElement("div");
+      list.className = "neighbor-list";
+      td.appendChild(list);
+      tr.appendChild(td);
+      containersForSentence[group] = list;
+    });
+    neighborContainers.push(containersForSentence);
     neighborBody.appendChild(tr);
   });
   neighborTable.appendChild(neighborBody);
@@ -408,10 +450,14 @@ function buildTargetSection(target, topK) {
         predCells[si][rank].probEl.textContent = prediction.prob.toFixed(2);
       });
 
-      neighborContainers[si].replaceChildren();
-      layerData.neighbors.forEach((neighbor) => {
-        neighborContainers[si].appendChild(buildNeighborLine(neighbor));
+      DATA.neighbor_groups.forEach((group) => {
+        const container = neighborContainers[si][group];
+        container.replaceChildren();
+        layerData.neighbors[group].forEach((neighbor) => {
+          container.appendChild(buildNeighborLine(neighbor));
+        });
       });
+      chanceEls[si].textContent = layerData.chance_similarity.toFixed(3);
     });
 
     const matrix = target.similarities[layer];
