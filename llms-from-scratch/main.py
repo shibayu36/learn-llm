@@ -14,7 +14,7 @@ from gpt import GPT
 from plot import save_loss_plot
 from tokenizer import CharTokenizer
 from train import train_model
-from visualize import build_embedding_map, build_hidden_state_tables, save_html
+from visualize import build_attention_tables, build_embedding_map, build_hidden_state_tables, save_html
 
 DATA_DIR = Path("data/fineweb-japanese-10k")
 PROMPTS_PATH = Path(__file__).parent / "data/evaluation-prompts.json"
@@ -218,6 +218,34 @@ def run_visualize_hidden_states(run_name: str) -> None:
     print("ブラウザで開く:", html_path)
 
 
+def run_visualize_attention(run_name: str) -> None:
+    run_dir = RUNS_DIR / run_name
+    model, config, tokenizer = load_run(run_dir)
+    inputs = json.loads(HIDDEN_STATE_SENTENCES_PATH.read_text(encoding="utf-8"))
+
+    data = build_attention_tables(model, tokenizer, inputs["sentences"])
+    data["run_name"] = run_name
+    json_path = run_dir / "attention_weights.json"
+    json_path.write_text(
+        json.dumps(data, ensure_ascii=False, allow_nan=False) + "\n", encoding="utf-8"
+    )
+    for layer in range(data["num_layers"]):
+        for head_index in range(data["num_heads"]):
+            summary = data["summary"][layer][head_index]
+            print(
+                f"Layer {layer + 1} Head {head_index}: "
+                f"直前={summary['prev']:.4f} 先頭={summary['first']:.4f} 距離={summary['distance']:.4f}"
+            )
+    uniform = data["uniform"]
+    print(
+        "均等に見た場合: "
+        f"直前={uniform['prev']:.4f} 先頭={uniform['first']:.4f} 距離={uniform['distance']:.4f}"
+    )
+    html_path = run_dir / "attention_weights.html"
+    save_html(data, TEMPLATES_DIR / "attention_weights.html", html_path)
+    print("ブラウザで開く:", html_path)
+
+
 def main() -> None:
     # argparse はコマンドライン引数を解釈する標準ライブラリ。
     # `uv run main.py train` のように動詞で処理を切り替える
@@ -244,6 +272,9 @@ def main() -> None:
     hidden_parser = subparsers.add_parser("visualize-hidden-states")
     hidden_parser.add_argument("--run-name", default="l1h1")
 
+    attention_parser = subparsers.add_parser("visualize-attention")
+    attention_parser.add_argument("--run-name", default="l1h1")
+
     args = parser.parse_args()
 
     if args.command == "train":
@@ -256,6 +287,8 @@ def main() -> None:
         run_visualize_embeddings(args.run_name)
     elif args.command == "visualize-hidden-states":
         run_visualize_hidden_states(args.run_name)
+    elif args.command == "visualize-attention":
+        run_visualize_attention(args.run_name)
 
 
 if __name__ == "__main__":

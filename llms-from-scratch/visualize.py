@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import umap
 
-from gpt import TransformerBlock
+from gpt import CausalAttention, MultiHeadAttention, TransformerBlock
 from tokenizer import CharTokenizer
 
 # 学習済みモデルの内部表現を観察するためのデータを作る。図や表はHTML側で描くので、
@@ -13,6 +13,7 @@ from tokenizer import CharTokenizer
 #
 # 1. Token embeddingの地図: build_embedding_map
 # 2. Hidden stateの表（予測と近い文脈）: build_hidden_state_tables
+# 3. ヘッドごとのAttention weight: build_attention_tables
 
 # PCAの軸を求めるのに使う、出現頻度上位の文字数。ほとんど学習で更新されない稀な文字が
 # 軸を支配しないようにするため。投影自体は全tokenに対して行う
@@ -486,6 +487,226 @@ def build_hidden_state_tables(
         "neighbor_groups": NEIGHBOR_GROUPS,
         "corpus": {"num_tokens": len(corpus_tokens), "chance_rank": keep},
         "targets": targets,
+    }
+
+
+# ---- 3. ヘッドごとのAttention weight ----
+#
+# CausalAttention.forwardはAttentionの重みを返さないので、hookでヘッドへの入力と出力を
+# 横取りし、重みをここで計算し直す。計算し直した重みから作ったコンテキストベクトルが
+# 実際の出力と一致することを確かめるので、gpt.pyの式が変わればここで気づける。
+
+
+def collect_attention_heads(model: nn.Module) -> list[list[CausalAttention]]:
+    """層ごとのヘッド（CausalAttention）の一覧を、層順・ヘッド順に返す。
+
+    MultiHeadAttentionならその中の heads を1つずつ、CausalAttention単体（OneLayerOneHeadGPT・
+    OneHeadGPT）ならそれ1つを、その層の唯一のヘッドとして扱う。
+    """
+    blocks: list[nn.Module] = []
+    for module in model.modules():
+        if isinstance(module, TransformerBlock):
+            blocks.append(module)
+
+    heads_by_layer: list[list[CausalAttention]] = []
+    for block in blocks:
+        heads: list[CausalAttention] = []
+        if isinstance(block.att, MultiHeadAttention):
+            for head in block.att.heads:
+                heads.append(head)
+        elif isinstance(block.att, CausalAttention):
+            heads.append(block.att)
+        else:
+            raise TypeError(f"未対応のAttention: {type(block.att)}")
+        heads_by_layer.append(heads)
+    return heads_by_layer
+
+
+def collect_attention_head_io(
+    model: nn.Module, heads_by_layer: list[list[CausalAttention]], token_ids: list[int]
+) -> tuple[dict[CausalAttention, torch.Tensor], dict[CausalAttention, torch.Tensor]]:
+    """1つの入力を通し、ヘッドごとに入力と出力を横取りして返す。pre_hookはforwardの前に
+    入力を、forward_hookは後に出力を受け取る。
+
+    入力は層正規化後の x で [T, d_model]、出力はコンテキストベクトルで [T, head_dim]。
+    戻り値はヘッド（モジュール自身）をキーにした辞書（入力の辞書、出力の辞書）。
+    """
+    inputs_by_head: dict[CausalAttention, torch.Tensor] = {}
+    outputs_by_head: dict[CausalAttention, torch.Tensor] = {}
+
+    def capture_input(module: CausalAttention, inputs: tuple[torch.Tensor, ...]) -> None:
+        inputs_by_head[module] = inputs[0][0]
+
+    def capture_output(module: CausalAttention, inputs: tuple[torch.Tensor, ...], output: torch.Tensor) -> None:
+        outputs_by_head[module] = output[0]
+
+    handles = []
+    for heads in heads_by_layer:
+        for head in heads:
+            handles.append(head.register_forward_pre_hook(capture_input))
+            handles.append(head.register_forward_hook(capture_output))
+
+    with torch.no_grad():
+        model(torch.tensor([token_ids]))
+    for handle in handles:
+        handle.remove()
+    return inputs_by_head, outputs_by_head
+
+
+def compute_attention_weights(head: CausalAttention, x: torch.Tensor) -> torch.Tensor:
+    """1つのヘッドへの入力 x（[T, d_model]）からAttentionの重み（[T, T]）を計算する。
+
+    gpt.py の CausalAttention.forward と同じ式（クエリとキーのドット積 → 未来をマスク →
+    √D で割ってsoftmax）を、バッチ次元のない1文に対して書き直したもの
+    """
+    num_tokens = x.shape[0]
+    queries = head.W_query(x)
+    keys = head.W_key(x)
+
+    attn_scores = queries @ keys.T  # [T, D] @ [D, T] → [T, T]
+    mask = head.mask.bool()[:num_tokens, :num_tokens]
+    attn_scores = attn_scores.masked_fill(mask, -torch.inf)
+    attn_weights = torch.softmax(attn_scores / keys.shape[-1] ** 0.5, dim=-1)
+    return attn_weights
+
+
+def check_recomputed_output(
+    head: CausalAttention,
+    x: torch.Tensor,
+    attn_weights: torch.Tensor,
+    actual_output: torch.Tensor,
+    layer: int,
+    head_index: int,
+) -> None:
+    """計算し直した重みから作ったコンテキストベクトルが、実際の出力と一致するか確かめる。"""
+    values = head.W_value(x)
+    recomputed_output = attn_weights @ values
+    # allclose は2つのテンソルの全要素が浮動小数点の誤差の範囲で等しいかを返す
+    if not torch.allclose(recomputed_output, actual_output):
+        raise ValueError(
+            f"Layer {layer + 1} Head {head_index}: 計算し直したAttentionの出力が"
+            "モデルの実際の出力と一致しない"
+        )
+
+
+def sum_attention_patterns(attn_weights: torch.Tensor) -> dict[str, float]:
+    """1つの [T, T] 行列（1文分）から、位置1以降の prev・first・distance の合計を返す。
+
+      - prev: 直前の文字への重み w[i, i-1] の合計
+      - first: 先頭の文字への重み w[i, 0] の合計
+      - distance: 参照距離 sum_{j<=i} w[i, j] * (i - j) の合計
+    """
+    num_tokens = attn_weights.shape[0]
+    prev_sum = 0.0
+    first_sum = 0.0
+    distance_sum = 0.0
+    for i in range(1, num_tokens):
+        prev_sum += attn_weights[i, i - 1].item()
+        first_sum += attn_weights[i, 0].item()
+        distance = 0.0
+        for j in range(i + 1):
+            distance += attn_weights[i, j].item() * (i - j)
+        distance_sum += distance
+    return {"prev": prev_sum, "first": first_sum, "distance": distance_sum}
+
+
+def build_attention_tables(model: nn.Module, tokenizer: CharTokenizer, texts: list[str]) -> dict:
+    """文ごと・層ごと・ヘッドごとにAttentionの重みを求め、表とヒートマップ用にまとめる。
+
+    流れ: hookで入出力を集める → 重みを計算し直す → 自己チェック → 要約値を足し込む →
+    JSON用の行列にする。
+
+    要約値（層×ヘッドごと）は全文・全位置（位置0は自分しか見られないので除く）の平均。
+      - prev: 直前の文字への重み w[i, i-1]
+      - first: 先頭の文字への重み w[i, 0]
+      - distance: 参照距離の平均 sum_j w[i, j] * (i - j)
+    位置1では直前の文字と先頭の文字が同じなので、prev と first に同じ重みが入る。
+
+    "uniform" は比較用の基準値で、位置 i（i >= 1）が自分より前の i+1 個の位置を均等に
+    見た場合の prev・first・distance（全文・全位置の平均）。
+    """
+    heads_by_layer = collect_attention_heads(model)
+    num_layers = len(heads_by_layer)
+    num_heads = len(heads_by_layer[0])
+
+    pattern_sums: list[list[dict[str, float]]] = []
+    for layer in range(num_layers):
+        row: list[dict[str, float]] = []
+        for head_index in range(num_heads):
+            row.append({"prev": 0.0, "first": 0.0, "distance": 0.0})
+        pattern_sums.append(row)
+    position_count = 0
+    uniform_prev_first_sum = 0.0
+    uniform_distance_sum = 0.0
+
+    sentences: list[dict] = []
+    for text in texts:
+        token_ids = tokenizer.encode(text)
+        if tokenizer.unk_id in token_ids:
+            raise ValueError(f"語彙にない文字を含む: {text}")
+        num_tokens = len(token_ids)
+
+        inputs_by_head, outputs_by_head = collect_attention_head_io(model, heads_by_layer, token_ids)
+
+        weights_by_layer: list[list[list[list[float]]]] = []
+        for layer in range(num_layers):
+            weights_by_head: list[list[list[float]]] = []
+            for head_index in range(num_heads):
+                head = heads_by_layer[layer][head_index]
+                x = inputs_by_head[head]
+                attn_weights = compute_attention_weights(head, x)
+                check_recomputed_output(head, x, attn_weights, outputs_by_head[head], layer, head_index)
+
+                patterns = sum_attention_patterns(attn_weights)
+                pattern_sums[layer][head_index]["prev"] += patterns["prev"]
+                pattern_sums[layer][head_index]["first"] += patterns["first"]
+                pattern_sums[layer][head_index]["distance"] += patterns["distance"]
+
+                rows: list[list[float]] = []
+                for i in range(num_tokens):
+                    row: list[float] = []
+                    for j in range(num_tokens):
+                        row.append(round(attn_weights[i, j].item(), 4))
+                    rows.append(row)
+                weights_by_head.append(rows)
+            weights_by_layer.append(weights_by_head)
+        position_count += num_tokens - 1
+
+        for i in range(1, num_tokens):
+            # 全位置を均等に見た場合: i+1個の位置に等しい重み 1/(i+1)、参照距離の平均は
+            # 0, 1, ..., i の平均で i/2
+            uniform_prev_first_sum += 1.0 / (i + 1)
+            uniform_distance_sum += i / 2.0
+
+        chars: list[str] = []
+        for token_id in token_ids:
+            chars.append(display_token(tokenizer, token_id))
+        sentences.append({"text": text, "chars": chars, "weights": weights_by_layer})
+
+    summary: list[list[dict]] = []
+    for layer in range(num_layers):
+        row: list[dict] = []
+        for head_index in range(num_heads):
+            patterns = pattern_sums[layer][head_index]
+            row.append({
+                "prev": round(patterns["prev"] / position_count, 4),
+                "first": round(patterns["first"] / position_count, 4),
+                "distance": round(patterns["distance"] / position_count, 4),
+            })
+        summary.append(row)
+
+    uniform = {
+        "prev": round(uniform_prev_first_sum / position_count, 4),
+        "first": round(uniform_prev_first_sum / position_count, 4),
+        "distance": round(uniform_distance_sum / position_count, 4),
+    }
+
+    return {
+        "num_layers": num_layers,
+        "num_heads": num_heads,
+        "sentences": sentences,
+        "summary": summary,
+        "uniform": uniform,
     }
 
 

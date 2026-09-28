@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>Attentionの重みの観察</title>
+<style>
+  :root {
+    --surface-1: #fcfcfb;
+    --page: #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --grid: #e1e0d9;
+    --border: rgba(11, 11, 11, 0.10);
+    --mark-bg: #fde7b8;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    font-family: "Hiragino Sans", system-ui, sans-serif;
+    color: var(--text-primary);
+    background: var(--page);
+  }
+
+  .app {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 24px 24px 48px;
+  }
+
+  h1 { font-size: 20px; margin: 0 0 12px; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  h3 { font-size: 13px; color: var(--text-secondary); margin: 0 0 8px; }
+
+  .intro p {
+    margin: 0 0 12px;
+    line-height: 1.8;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  .intro { margin-bottom: 20px; }
+
+  .run-name { color: var(--text-secondary); font-size: 13px; margin-bottom: 20px; }
+  .run-name strong { color: var(--text-primary); }
+
+  section.controls { margin-bottom: 20px; }
+
+  .layer-buttons, .sentence-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+  .layer-btn, .sentence-btn {
+    padding: 6px 14px;
+    font-family: inherit;
+    font-size: 13px;
+    color: var(--text-primary);
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .layer-btn:hover, .sentence-btn:hover { background: var(--grid); }
+  .layer-btn.active, .sentence-btn.active {
+    background: var(--text-primary);
+    color: #fff;
+    border-color: var(--text-primary);
+  }
+
+  section.summary-section, section.heatmap-section {
+    padding: 20px;
+    margin-bottom: 28px;
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+
+  table {
+    border-collapse: collapse;
+    font-family: inherit;
+  }
+  th, td {
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--grid);
+  }
+  th {
+    color: var(--text-secondary);
+    font-weight: 600;
+    font-size: 11px;
+    text-align: center;
+  }
+
+  /* 要約表（層×ヘッド） */
+  table.summary-table { font-size: 12px; }
+  table.summary-table th, table.summary-table td { text-align: center; padding: 6px 10px; }
+  table.summary-table th:first-child, table.summary-table td.layer-head {
+    text-align: left;
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
+  .summary-cell { display: flex; flex-direction: column; line-height: 1.5; }
+  .summary-cell span { font-variant-numeric: tabular-nums; }
+  .summary-label { color: var(--text-muted); font-size: 10px; }
+
+  /* ヘッドごとのヒートマップ */
+  .heatmap-row { display: flex; flex-wrap: wrap; gap: 24px; }
+  .heatmap-block { max-width: 100%; }
+  .heatmap-caption {
+    margin: 8px 0 0;
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--text-secondary);
+    max-width: 320px;
+  }
+  table.heatmap-table { font-size: 10px; }
+  table.heatmap-table th, table.heatmap-table td {
+    padding: 2px 4px;
+    border-bottom: none;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  table.heatmap-table th.row-head, table.heatmap-table td.row-head {
+    text-align: right;
+    color: var(--text-secondary);
+    font-weight: 600;
+    padding-right: 8px;
+  }
+  table.heatmap-table td.weight-cell { min-width: 24px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>Attentionの重みの観察</h1>
+
+  <div class="intro" id="intro"></div>
+
+  <div class="run-name">run: <strong id="runName"></strong></div>
+
+  <section class="summary-section">
+    <h2>各ヘッドが直前・先頭・どれだけ遠くを見ているか（全文の平均）</h2>
+    <div id="summaryTable"></div>
+  </section>
+
+  <section class="controls">
+    <h2>文を選択</h2>
+    <div id="sentenceButtons" class="sentence-buttons"></div>
+  </section>
+
+  <section class="controls">
+    <h2>層を選択</h2>
+    <div id="layerButtons" class="layer-buttons"></div>
+  </section>
+
+  <section class="heatmap-section">
+    <h2>1文の中で各文字がどの文字を参照しているか</h2>
+    <div id="heatmaps" class="heatmap-row"></div>
+  </section>
+</div>
+
+<script>
+const DATA = /*__DATA__*/null;
+
+// ---- 導入文 ----
+function renderIntro() {
+  const introEl = document.getElementById("intro");
+
+  const p1 = document.createElement("p");
+  p1.textContent =
+    "このページは、学習した各ヘッドが決まった参照の仕方（直前の文字だけを見る、文の先頭を見る、" +
+    "遠くまで広く見る、など）を身につけているか、ヘッドどうしで分業が起きているかを確かめるためのもの。" +
+    "lossの値だけではヘッド数を増やした効果が見えなかったので、Attentionの重みを直接見て確かめる。" +
+    "層の番号はhidden stateの図と同じで、Layer k は k 個目のTransformerブロックを指す。" +
+    "hidden stateの図の Layer k はそのブロックの出力、ここでの Layer k はそのブロックの中のAttention。" +
+    "Layer 0 は埋め込みを足しただけでAttentionを通っていないので、ここにはない。";
+
+  const p2 = document.createElement("p");
+  p2.textContent =
+    "上の表の「直前」は1つ前の文字への重み、「先頭」は文の先頭の文字への重みで、" +
+    "位置1では直前と先頭が同じ文字になるので同じ値が入る。「距離」は参照先までの距離" +
+    "（今の文字の位置 − 参照先の位置）を重みで加重した平均。表の最後の行「均等に見た場合」は、" +
+    "全ての位置を同じ重みで参照したときの値で、これと比べて大きいか小さいかでヘッドの偏りを読む。";
+
+  const p3 = document.createElement("p");
+  p3.textContent =
+    "下のヒートマップは、行が「今の文字」、列が「参照した文字」で、各行の合計は必ず1になる。" +
+    "未来の文字は参照できないので、右上（列が行より後ろの位置）のセルは空欄のまま。" +
+    "対角線のすぐ左の列が濃いヘッドは直前の文字を、左端の列が濃いヘッドは文の先頭を見ている。" +
+    "例えば「銀行」「旅行」のような文では、「行」の行で「銀」「旅」に重みが乗っているかを見ると、" +
+    "その単語をひとまとまりとして参照できているかが分かる。";
+
+  const p4 = document.createElement("p");
+  p4.textContent = "下のボタンで文と層を切り替え、横に並んだヘッドどうしを見比べる。";
+
+  introEl.appendChild(p1);
+  introEl.appendChild(p2);
+  introEl.appendChild(p3);
+  introEl.appendChild(p4);
+}
+renderIntro();
+
+// ---- 要約表 ----
+function renderSummaryTable() {
+  const container = document.getElementById("summaryTable");
+  const table = document.createElement("table");
+  table.className = "summary-table";
+
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  headRow.appendChild(document.createElement("th"));
+  for (let head = 0; head < DATA.num_heads; head++) {
+    const th = document.createElement("th");
+    th.textContent = "Head " + head;
+    headRow.appendChild(th);
+  }
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  for (let layer = 0; layer < DATA.num_layers; layer++) {
+    const tr = document.createElement("tr");
+    const layerHead = document.createElement("td");
+    layerHead.className = "layer-head";
+    layerHead.textContent = "Layer " + (layer + 1);
+    tr.appendChild(layerHead);
+
+    for (let head = 0; head < DATA.num_heads; head++) {
+      const summary = DATA.summary[layer][head];
+      const td = document.createElement("td");
+      const cell = document.createElement("div");
+      cell.className = "summary-cell";
+      cell.appendChild(buildSummaryLine("直前", summary.prev));
+      cell.appendChild(buildSummaryLine("先頭", summary.first));
+      cell.appendChild(buildSummaryLine("距離", summary.distance));
+      td.appendChild(cell);
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+
+  // 基準として、全ての位置を均等に見た場合の値を最後の行に出す
+  const uniformRow = document.createElement("tr");
+  const uniformLabel = document.createElement("td");
+  uniformLabel.className = "layer-head";
+  uniformLabel.textContent = "均等に見た場合";
+  uniformRow.appendChild(uniformLabel);
+  const uniformTd = document.createElement("td");
+  uniformTd.colSpan = DATA.num_heads;
+  const uniformCell = document.createElement("div");
+  uniformCell.className = "summary-cell";
+  uniformCell.appendChild(buildSummaryLine("直前", DATA.uniform.prev));
+  uniformCell.appendChild(buildSummaryLine("先頭", DATA.uniform.first));
+  uniformCell.appendChild(buildSummaryLine("距離", DATA.uniform.distance));
+  uniformTd.appendChild(uniformCell);
+  uniformRow.appendChild(uniformTd);
+  tbody.appendChild(uniformRow);
+
+  table.appendChild(tbody);
+  container.appendChild(table);
+}
+
+function buildSummaryLine(label, value) {
+  const line = document.createElement("span");
+  const labelSpan = document.createElement("span");
+  labelSpan.className = "summary-label";
+  labelSpan.textContent = label + " ";
+  line.appendChild(labelSpan);
+  line.appendChild(document.createTextNode(value.toFixed(3)));
+  return line;
+}
+renderSummaryTable();
+
+// ---- ヒートマップ ----
+// 重み（0〜1）をそのまま背景色の不透明度にする
+function weightColor(weight) {
+  return "rgba(11, 11, 11, " + weight.toFixed(3) + ")";
+}
+
+function buildHeadCaption(layer, head) {
+  const summary = DATA.summary[layer][head];
+  const p = document.createElement("p");
+  p.className = "heatmap-caption";
+  p.textContent =
+    "直前 " + summary.prev.toFixed(2) +
+    " ・ 先頭 " + summary.first.toFixed(2) +
+    " ・ 距離 " + summary.distance.toFixed(2) +
+    "（全文・全位置の平均）";
+  return p;
+}
+
+function buildHeatmapTable(chars, weights) {
+  const table = document.createElement("table");
+  table.className = "heatmap-table";
+
+  const thead = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  const cornerTh = document.createElement("th");
+  cornerTh.textContent = "今↓ 参照→";
+  headRow.appendChild(cornerTh);
+  for (let col = 0; col < chars.length; col++) {
+    const th = document.createElement("th");
+    th.textContent = chars[col];
+    headRow.appendChild(th);
+  }
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  for (let row = 0; row < chars.length; row++) {
+    const tr = document.createElement("tr");
+    const rowHead = document.createElement("th");
+    rowHead.className = "row-head";
+    rowHead.textContent = chars[row];
+    tr.appendChild(rowHead);
+
+    for (let col = 0; col < chars.length; col++) {
+      const td = document.createElement("td");
+      td.className = "weight-cell";
+      // 未来（列が行より後ろ）は参照できないので空欄のまま
+      if (col <= row) {
+        const weight = weights[row][col];
+        td.style.backgroundColor = weightColor(weight);
+        if (weight > 0.5) {
+          td.style.color = "#fff";
+        }
+        td.textContent = weight.toFixed(2);
+      }
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  return table;
+}
+
+function renderHeatmaps() {
+  const container = document.getElementById("heatmaps");
+  container.replaceChildren();
+
+  const sentence = DATA.sentences[state.selectedSentence];
+  const layer = state.selectedLayer;
+
+  for (let head = 0; head < DATA.num_heads; head++) {
+    const block = document.createElement("div");
+    block.className = "heatmap-block";
+
+    const heading = document.createElement("h3");
+    heading.textContent = "Head " + head;
+    block.appendChild(heading);
+
+    block.appendChild(buildHeatmapTable(sentence.chars, sentence.weights[layer][head]));
+    block.appendChild(buildHeadCaption(layer, head));
+
+    container.appendChild(block);
+  }
+}
+
+// ---- 組み立て ----
+document.getElementById("runName").textContent = DATA.run_name;
+
+const state = { selectedSentence: 0, selectedLayer: DATA.num_layers - 1 };
+
+const sentenceButtonsEl = document.getElementById("sentenceButtons");
+const layerButtonsEl = document.getElementById("layerButtons");
+
+function updateAll() {
+  renderHeatmaps();
+  Array.from(sentenceButtonsEl.children).forEach((btn, i) => {
+    btn.classList.toggle("active", i === state.selectedSentence);
+  });
+  Array.from(layerButtonsEl.children).forEach((btn, i) => {
+    btn.classList.toggle("active", i === state.selectedLayer);
+  });
+}
+
+DATA.sentences.forEach((sentence, i) => {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "sentence-btn";
+  btn.textContent = sentence.text;
+  btn.addEventListener("click", () => {
+    state.selectedSentence = i;
+    updateAll();
+  });
+  sentenceButtonsEl.appendChild(btn);
+});
+
+for (let layer = 0; layer < DATA.num_layers; layer++) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "layer-btn";
+  btn.textContent = "Layer " + (layer + 1);
+  btn.addEventListener("click", () => {
+    state.selectedLayer = layer;
+    updateAll();
+  });
+  layerButtonsEl.appendChild(btn);
+}
+
+updateAll();
+</script>
+</body>
+</html>
