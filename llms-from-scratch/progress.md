@@ -233,7 +233,8 @@ Stage 5（Multi-head Attention）を進行中（2026-09-28）。4層・128次元
 両方があった時点で確かめたこと。
 
 - 分割方式の `W_query.weight`（shape `[128, 128]`）を行方向に64ずつ切って並べる形の各ヘッドに入れ、`out_proj` を単位行列・bias 0 にすると、2つの出力は完全一致（最大差 0.0）。「1つの行列を分割する」と「小さな行列を並べて連結する」は同じ計算
-- 速度（B=16・T=256・D=128、並べる形にも `out_proj` 相当のLinearを足して比較）。4ヘッドのforward+backwardはCPUで約7ms対約7ms、MPSで1.7ms対2.0msと、この規模では分割方式は速くない。MPSではむしろ `contiguous()` のコピー分だけ遅く、8ヘッドで2割ほど開いた。本の言う「効率的」は、GPT-2の12ヘッド・768次元のように行列が大きいときの話
+- 速度（B=16・T=256・D=128、並べる形にも `out_proj` 相当のLinearを足して比較）。4ヘッドのforward+backwardはCPUで約7ms対約7ms、MPSで1.7ms対2.0msと、この規模では分割方式は速くない。MPSではむしろ `contiguous()` のコピー分だけ遅く、8ヘッドで2割ほど開いた
+- GPT-2 small構成（12層・12ヘッド・768次元、B=16・T=256）でも差はない（2026-09-28、`tmp/bench_mha_gpt2.py`、commitしない）。乱数バッチで200stepの学習を回すと、並べる形が167.9秒（1step 839ms）、分割方式が169.9秒（1step 850ms）で1%程度の差。この規模では1stepの大半をFeedForwardと出力層の行列積が占め、Attentionの呼び出し回数を減らしても全体はほとんど縮まない。本の言う「効率的」はMPSでは規模を問わず効かず、並べる形のままで十分
 
 残した `MultiHeadAttention` について `tmp/check_multihead.py`（commitしない）で確かめたこと。
 
