@@ -109,22 +109,7 @@ Stage 5（Multi-head Attention）を進行中（2026-09-28）。4層・128次元
 ### Stage 3：訓練ループ（2026-09-25）
 
 - 1層1ヘッド、2,000step、AdamW（lr 3e-4、weight_decay 0.1）。学習時間 43秒（評価11回込み）
-- lossの推移（train は shuffle=False の先頭8バッチ、validation は先頭8バッチ）
-
-  | step | train | validation |
-  |---:|---:|---:|
-  | 0 | 8.464 | 8.462 |
-  | 200 | 5.785 | 5.687 |
-  | 400 | 5.541 | 5.436 |
-  | 600 | 5.239 | 5.120 |
-  | 800 | 4.968 | 4.851 |
-  | 1000 | 4.776 | 4.662 |
-  | 1200 | 4.645 | 4.533 |
-  | 1400 | 4.549 | 4.439 |
-  | 1600 | 4.476 | 4.367 |
-  | 1800 | 4.417 | 4.311 |
-  | 2000 | 4.368 | 4.264 |
-
+- lossの推移（train は shuffle=False の先頭8バッチ、validation は先頭8バッチ）は `evaluation-results.md` の「l1h1 の学習曲線と全出力」節
 - 2,000stepでも下がり続けている（最後の200stepで0.05）。パープレキシティは `exp(4.26)=71`
 - validation lossがtrain lossより常にわずかに低い。過剰適合の逆で、先頭8バッチの文章の難しさの差と見られる（trainの先頭8バッチはたまたま難しい文章）。2本の差が広がらないことが大事で、差の符号は気にしない
 - 「日本の首都は」のgreedy生成の変化
@@ -137,11 +122,8 @@ Stage 5（Multi-head Attention）を進行中（2026-09-28）。4層・128次元
 
 ### Stage 3：保存と `generate` サブコマンド（2026-09-26）
 
-- `uv run main.py train` を再実行すると、lossの推移も学習中の生成も前回（2026-09-25）と1文字違わず同じだった。seed固定でDataLoaderの順番とモデルの初期値が決まるので、同じコードなら同じ結果になる
-- `runs/l1h1/` に3ファイル。`model.pt` は2.59MB（パラメータ580,800個 × float32の4バイト = 2.32MB に、名前などの情報が乗る）、`vocab.json` は28KB、`config.json` は221バイト
-- `uv run main.py generate "日本の首都は"` の結果
-  - T=0：`、そのできるのです。 -  - 1900000000000000000000000010001000`。2回とも同じで、学習の最後（step 2000）の表示とも同じ。保存→読み込みでモデルが変わっていないことの確認になる
-  - T=0.8：`2005196ノース団ル事にようとが行っていたよりでしても問題 15.....月代としていといる。`、`言うこの制動を生われる。 といんだ度団体は、このはみな、最気いよりします。 大職や資ばなど配の記来の`。2回とも違う
+モデル・Config・語彙を `runs/l1h1/` に保存し、`main.py generate` で読み込んで生成するようにした。読み込んだモデルの「日本の首都は」のgreedy生成が学習の最後（step 2000）の表示と一致し、保存→読み込みでモデルが変わらないことを確かめた。
+
 - 観察: samplingにすると、greedyで落ち込んでいた「0」の繰り返しから抜け、「団体」「問題」「制動」など2文字の単語が現れる。一方で「生われる」「最気」のように、単語の途中で別の文字につながる箇所も多い。1文字1tokenなので、単語のつながりは2〜3文字先まで覚えられているが、文の意味は保てていない
 
 ### Stage 3：steps と学習率の見直し（2026-09-26）
@@ -169,13 +151,7 @@ Stage 5（Multi-head Attention）を進行中（2026-09-28）。4層・128次元
 
 ### Stage 4：OneHeadGPT と1層の一致確認（2026-09-27）
 
-`Config.n_layers`（既定1）を足し、`TransformerBlock` を `nn.Sequential` に `n_layers` 個並べた `OneHeadGPT` を `gpt.py` に追加した。`main.py train` は `OneHeadGPT` で学習し、`checkpoint.load_run` はクラス名で `OneLayerOneHeadGPT` と `OneHeadGPT` を組み立て分ける。既存3runのローカルの `config.json` には `"n_layers": 1` を手で足した。
-
-`tmp/check_gpt_model.py`（commitしない）で `n_layers=1` の `OneHeadGPT` が `OneLayerOneHeadGPT` と同じものであることを確かめた。
-
-- 同じseed（42）で作ると、パラメータ数1,251,712・17個のパラメータの初期値がすべて一致。パラメータの作られる順番が同じなので乱数の消費も同じになる。`state_dict` のキーは `trf_block.` と `trf_blocks.0.` で違うだけ
-- ランダムな入力 `[2, 16]` のlogitsが完全一致（`torch.equal`）。cross entropyで `backward` した勾配も全パラメータで完全一致。forwardとbackwardが同じなら学習の経過も同じになるので、1層は学習し直さない
-- `l1h1-d128-s5000-lr1e-3` の重みをキー名を付け替えて `OneHeadGPT` に流し込み、全バッチvalidation lossを測ると 3.3765399842247414 で、保存済みの値と小数点以下すべて一致。評価token数も657,408で同じ
+`l1h1-d128-s5000-lr1e-3` の重みをキー名を付け替えて `n_layers=1` の `OneHeadGPT` に流し込むと、全バッチvalidation lossが保存済みの値（3.376540）と一致した。`OneHeadGPT` の1層は `OneLayerOneHeadGPT` と同じ計算なので、1層は学習し直さない（`tmp/check_gpt_model.py`、commitしない）。既存3runの `config.json` には `"n_layers": 1` を手で足した。
 
 ### Stage 4：4層の学習（2026-09-27）
 
@@ -208,12 +184,7 @@ Stage 5（Multi-head Attention）を進行中（2026-09-28）。4層・128次元
 - 速度（B=16・T=256・D=128、並べる形にも `out_proj` 相当のLinearを足して比較）。4ヘッドのforward+backwardはCPUで約7ms対約7ms、MPSで1.7ms対2.0msと、この規模では分割方式は速くない。MPSではむしろ `contiguous()` のコピー分だけ遅く、8ヘッドで2割ほど開いた
 - GPT-2 small構成（12層・12ヘッド・768次元、B=16・T=256）でも差はない（2026-09-28、`tmp/bench_mha_gpt2.py`、commitしない）。乱数バッチで200stepの学習を回すと、並べる形が167.9秒（1step 839ms）、分割方式が169.9秒（1step 850ms）で1%程度の差。この規模では1stepの大半をFeedForwardと出力層の行列積が占め、Attentionの呼び出し回数を減らしても全体はほとんど縮まない。本の言う「効率的」はMPSでは規模を問わず効かず、並べる形のままで十分
 
-残した `MultiHeadAttention` について `tmp/check_multihead.py`（commitしない）で確かめたこと。
-
-- 4ヘッドの出力は `[2, 16, 128]`、各ヘッドの出力は `[2, 16, 32]`
-- `n_heads=1` は `out_proj` を無効化すると `CausalAttention` と完全一致
-- パラメータ数は1・2・4ヘッドとも 65,664 で変わらない。`CausalAttention` の 49,152 との差 16,512 は `out_proj`（128×128 + bias 128）
-- `d_out=128` を3ヘッドにしようとすると `ValueError`
+残した `MultiHeadAttention` は、`n_heads=1` で `out_proj` を無効化すると `CausalAttention` と完全一致し、パラメータ数は1・2・4ヘッドで変わらない（`tmp/check_multihead.py`、commitしない）。
 
 ### Stage 5：4層で1ヘッドと4ヘッドの比較（2026-09-28）
 
