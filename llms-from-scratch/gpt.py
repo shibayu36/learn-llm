@@ -85,6 +85,43 @@ class CausalAttention(nn.Module):
         return context_vec
 
 
+# Multi-head Attention（本の 3.6）。CausalAttention を n_heads 個並べて出力を連結する。
+# ヘッドごとに W_query・W_key・W_value が別なので、ヘッドごとに違う位置に注目できる。
+# 各ヘッドの幅は d_out / n_heads（128次元・4ヘッドなら32）で、連結すると d_out に戻る。
+#
+#   x [B, T, d_in] ─┬─ heads[0] → [B, T, head_dim] ─┐
+#                   ├─ heads[1] → [B, T, head_dim] ─┼─ cat → [B, T, d_out] → out_proj → [B, T, d_out]
+#                   └─ ...                          ─┘
+#
+# out_proj は連結したヘッドの出力を混ぜる線形層。これがないと、各ヘッドの出力は
+# x の決まった区画（ヘッド0は先頭 head_dim 個の成分、…）にしか足されない。
+#
+# 本の 3.6.2 やGPT-2は、1つの大きな W_query で全ヘッド分を計算してから切り分ける。
+# 結果は同じで演算の呼び出し回数が減るだけなので、ここでは構造が読める並べる形にする
+class MultiHeadAttention(nn.Module):
+    def __init__(self, d_in: int, d_out: int, context_length: int, n_heads: int) -> None:
+        super().__init__()
+        if d_out % n_heads != 0:
+            raise ValueError(f"d_out={d_out} は n_heads={n_heads} で割り切れない")
+        head_dim = d_out // n_heads
+        heads: list[nn.Module] = []
+        for _ in range(n_heads):
+            heads.append(CausalAttention(d_in, head_dim, context_length))
+        # nn.ModuleList はモジュールを入れるリスト。素のlistに入れるとPyTorchが中の
+        # パラメータを見つけられず、学習も保存もされない
+        self.heads = nn.ModuleList(heads)
+        self.out_proj = nn.Linear(d_out, d_out)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        outputs: list[torch.Tensor] = []
+        for head in self.heads:
+            outputs.append(head(x))
+        # torch.cat は複数のテンソルを指定した次元でつなげる。dim=-1 は最後の次元
+        # （D）でつなぐので、[B, T, head_dim] が n_heads 個 → [B, T, d_out]
+        context_vec = torch.cat(outputs, dim=-1)
+        return self.out_proj(context_vec)
+
+
 class LayerNorm(nn.Module):
     def __init__(self, d_model: int) -> None:
         super().__init__()
@@ -128,11 +165,11 @@ class FeedForward(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, config: Config) -> None:
+    # Attention（CausalAttention か MultiHeadAttention）は外から受け取る。ブロックの形は
+    # 同じで、中のAttentionだけが変わる
+    def __init__(self, config: Config, att: nn.Module) -> None:
         super().__init__()
-        self.att = CausalAttention(
-            config.d_model, config.d_model, config.context_length
-        )
+        self.att = att
         self.ff = FeedForward(config.d_model)
         self.norm1 = LayerNorm(config.d_model)
         self.norm2 = LayerNorm(config.d_model)
@@ -175,7 +212,10 @@ class OneLayerOneHeadGPT(nn.Module):
         super().__init__()
         self.tok_emb = nn.Embedding(vocab_size, config.d_model)
         self.pos_emb = nn.Embedding(config.context_length, config.d_model)
-        self.trf_block = TransformerBlock(config)
+        self.trf_block = TransformerBlock(
+            config,
+            CausalAttention(config.d_model, config.d_model, config.context_length),
+        )
         self.final_norm = LayerNorm(config.d_model)
         self.out_head = nn.Linear(config.d_model, vocab_size, bias=False)
 
@@ -223,8 +263,38 @@ class OneHeadGPT(nn.Module):
         # パラメータは別々に初期化され、別々に学習される
         blocks: list[nn.Module] = []
         for _ in range(config.n_layers):
-            blocks.append(TransformerBlock(config))
+            att = CausalAttention(config.d_model, config.d_model, config.context_length)
+            blocks.append(TransformerBlock(config, att))
         # nn.Sequential は渡したモジュールを並んだ順に呼び、前の出力を次の入力にする部品。
+        self.trf_blocks = nn.Sequential(*blocks)
+        self.final_norm = LayerNorm(config.d_model)
+        self.out_head = nn.Linear(config.d_model, vocab_size, bias=False)
+
+    def forward(self, in_idx: torch.Tensor) -> torch.Tensor:
+        seq_len = in_idx.shape[1]
+        tok_embeds = self.tok_emb(in_idx)
+        pos_embeds = self.pos_emb(torch.arange(seq_len, device=in_idx.device))
+        x = tok_embeds + pos_embeds
+        x = self.trf_blocks(x)
+        x = self.final_norm(x)
+        logits = self.out_head(x)
+        return logits
+
+
+# GPT（本の4.6 GPTModel）。OneHeadGPT の各ブロックのAttentionを MultiHeadAttention に
+# 置き換えただけで、それ以外の構造は同じ。n_heads=1 でも out_proj がある分だけ
+# OneHeadGPT よりパラメータが多く、そのままでは同じモデルにならない
+class GPT(nn.Module):
+    def __init__(self, vocab_size: int, config: Config) -> None:
+        super().__init__()
+        self.tok_emb = nn.Embedding(vocab_size, config.d_model)
+        self.pos_emb = nn.Embedding(config.context_length, config.d_model)
+        blocks: list[nn.Module] = []
+        for _ in range(config.n_layers):
+            att = MultiHeadAttention(
+                config.d_model, config.d_model, config.context_length, config.n_heads
+            )
+            blocks.append(TransformerBlock(config, att))
         self.trf_blocks = nn.Sequential(*blocks)
         self.final_norm = LayerNorm(config.d_model)
         self.out_head = nn.Linear(config.d_model, vocab_size, bias=False)

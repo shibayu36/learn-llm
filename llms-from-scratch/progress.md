@@ -4,7 +4,7 @@
 
 ## 現在の作業
 
-Stage 4（複数層）を進行中（2026-09-27）。`OneHeadGPT`（`n_layers` 可変・1ヘッド）を実装し、4層の学習・評価と、参考実験の1層20,000stepまで完了。4層のhidden stateの観察と128次元のembeddingの比較も記録済み（`visualization-results.md`）。残りは2層の学習と記録の更新。`config.py` は `n_layers=1`・`steps=5000` に戻してある。固定10promptの学習前出力は未記録。
+Stage 5（Multi-head Attention）を進行中（2026-09-28）。`Config.n_heads`・`MultiHeadAttention`（`CausalAttention` を並べて連結 + `out_proj`）・`GPT` を実装し、`main.py train` は `GPT` で学習する。次は4層・128次元で1ヘッドと4ヘッドを学習して比べる。`config.py` は `n_layers=1`・`n_heads=1`・`steps=5000`。固定10promptの学習前出力は未記録。
 
 ## 作業の決め事
 
@@ -61,16 +61,18 @@ Stage 4（複数層）を進行中（2026-09-27）。`OneHeadGPT`（`n_layers` �
 - [x] `n_layers=1` が `OneLayerOneHeadGPT` と一致することを確認（同seedのパラメータ・logits・勾配、既存runの重みを流し込んだ全バッチloss。`tmp/check_gpt_model.py`、2026-09-27）
 - [x] 4層を学習・評価し、1層の基準runと比較（`l4h1-d128-s5000-lr1e-3`、`evaluation-results.md`、2026-09-27）
 - [x] 1層を20,000stepで学習し、4層5,000stepと比べる（`l1h1-d128-s20000-lr1e-3`、2026-09-27）
-- [ ] 2層を学習・評価し、1・4層と並べる
 - [x] 4層のrunで層ごとのhidden stateを観察し、128次元のembeddingも1層と比較（`visualization-results.md`、2026-09-27）
-- [ ] 結果と考察を記録
+- [x] 結果と考察を記録（`evaluation-results.md`・`visualization-results.md`、2026-09-27）
+
+2層の学習は行わない。1層と4層の差で層を積む効果は読めたので、Stage 5でも4層だけで比べる（2026-09-27）。
 
 ## Stage 5：Multi-head Attention
 
-- [ ] `MultiHeadAttentionWrapper`
-- [ ] `MultiHeadAttention`（分割方式）と `Config.n_heads`、`GPTModel`
-- [ ] `n_heads=1` で `OneHeadGPT` と結果が変わらないことを確認
-- [ ] 1・2・4ヘッドの比較（`config.py` を手で変更）
+- [x] `MultiHeadAttention`（`CausalAttention` を並べて連結 + `out_proj`）と `Config.n_heads`。shape・パラメータ数・1ヘッドが `CausalAttention` と一致することを `tmp/check_multihead.py` で確認（2026-09-27）
+- [x] `TransformerBlock` にAttentionを外から渡す形に変える。既存6runの `config.json` に `"n_heads": 1` を足し、旧コードと同seedの初期値・logits、保存済みrunの全バッチloss（3.376540）と生成が一致することを確認（2026-09-27）
+- [x] `GPT`（`OneHeadGPT` のAttentionを `MultiHeadAttention` にしたもの）を作り、`checkpoint.load_run`・`main.py train` を対応させる（2026-09-28）
+- [x] `n_heads=1` の `GPT` に `OneHeadGPT` の重みを流し込み、`out_proj` を単位行列にすると一致することを確認。同seed初期値のlogitsは最大差0.0、4層runの全バッチvalidation lossは保存値 3.067810 と一致。パラメータ数の差は `out_proj` 4層分の 66,048。`tmp/check_gpt_model_heads.py`（2026-09-28）
+- [ ] 4層で1ヘッドと4ヘッドを比較（`config.py` を手で変更）
 - [ ] ヘッドごとのAttention weightの観察
 - [ ] 結果と考察を記録
 
@@ -222,3 +224,19 @@ Stage 4（複数層）を進行中（2026-09-27）。`OneHeadGPT`（`n_layers` �
 - 1文字ずつの生成は逆に遅い（1層50文字で0.018秒 → 0.13秒）。evaluateは全バッチlossが速くなる分を20本の生成が食いつぶし、合計では速くならない。UMAPは `.numpy()` がMPSで落ち、`torch.linalg.svd` はCPUにフォールバックする。生成・評価・可視化はCPUに残した
 - `torch.set_default_device("mps")` を入口で1回呼ぶ案は不採用。`DataLoader(shuffle=True)` の乱数生成器がCPUのまま `randperm` の出力先だけMPSになり例外になる。Datasetの2万個の小さいテンソルもGPUに作られ、データ準備が1.5秒 → 15秒になる
 - 1層をMPSで5,000step学習した `l1h1-d128-s5000-lr1e-3-mps` は、CPUの `l1h1-d128-s5000-lr1e-3` と全バッチvalidation loss 3.376540・学習中の最終値 3.279632・greedy生成がすべて一致した。初期値とshuffle順はCPUの乱数で作ってからGPUへ送るので乱数の消費が変わらず、Dropoutもないため。学習時間は163.2秒 → 64.3秒
+
+### Stage 5：Multi-head Attention の作り方の選択（2026-09-27）
+
+本の3.6には、`CausalAttention` を並べて `torch.cat` する `MultiHeadAttentionWrapper`（3.6.1）と、1つの `W_query` を `view`・`transpose` でヘッドに分割する `MultiHeadAttention`（3.6.2）の2つがある。最初は両方を作ったが、構造を理解する目的では並べる形の方が読みやすいので、並べる形に `out_proj` を足したものを `MultiHeadAttention` として残し、分割方式は消した。dropoutはなし。`out_proj` は本と同じくbiasあり。
+
+両方があった時点で確かめたこと。
+
+- 分割方式の `W_query.weight`（shape `[128, 128]`）を行方向に64ずつ切って並べる形の各ヘッドに入れ、`out_proj` を単位行列・bias 0 にすると、2つの出力は完全一致（最大差 0.0）。「1つの行列を分割する」と「小さな行列を並べて連結する」は同じ計算
+- 速度（B=16・T=256・D=128、並べる形にも `out_proj` 相当のLinearを足して比較）。4ヘッドのforward+backwardはCPUで約7ms対約7ms、MPSで1.7ms対2.0msと、この規模では分割方式は速くない。MPSではむしろ `contiguous()` のコピー分だけ遅く、8ヘッドで2割ほど開いた。本の言う「効率的」は、GPT-2の12ヘッド・768次元のように行列が大きいときの話
+
+残した `MultiHeadAttention` について `tmp/check_multihead.py`（commitしない）で確かめたこと。
+
+- 4ヘッドの出力は `[2, 16, 128]`、各ヘッドの出力は `[2, 16, 32]`
+- `n_heads=1` は `out_proj` を無効化すると `CausalAttention` と完全一致
+- パラメータ数は1・2・4ヘッドとも 65,664 で変わらない。`CausalAttention` の 49,152 との差 16,512 は `out_proj`（128×128 + bias 128）
+- `d_out=128` を3ヘッドにしようとすると `ValueError`

@@ -4,6 +4,8 @@ class Config:
         self.d_model: int = 128
         # 積むTransformerブロックの数。ブロックごとに別のパラメータを持つ
         self.n_layers: int = 1
+        # Attentionのヘッド数。d_model をこの数で等分して各ヘッドに割り当てる
+        self.n_heads: int = 1
         # 一度にモデルへ入れる系列の最大token数（shapeの T）
         self.context_length: int = 256
         # 1stepの更新で同時に学習する系列の数（shapeの B）
@@ -30,6 +32,7 @@ class Config:
         return {
             "d_model": self.d_model,
             "n_layers": self.n_layers,
+            "n_heads": self.n_heads,
             "context_length": self.context_length,
             "batch_size": self.batch_size,
             "steps": self.steps,
@@ -45,6 +48,7 @@ class Config:
         config = cls()
         config.d_model = data["d_model"]
         config.n_layers = data["n_layers"]
+        config.n_heads = data["n_heads"]
         config.context_length = data["context_length"]
         config.batch_size = data["batch_size"]
         config.steps = data["steps"]

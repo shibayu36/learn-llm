@@ -18,9 +18,9 @@
 |---|---|
 | 第2章 テキストデータの準備（2.2〜2.4 Tokenizer、2.6 スライディングウィンドウ、2.7〜2.8 埋め込み） | Stage 1。Tokenizerは本の `SimpleTokenizerV2` の考え方を文字単位に置き換える。2.5 BPE（tiktoken）は使わない。2.6の `GPTDatasetV1` + `DataLoader` はそのまま参考にする |
 | 第3章 Attentionメカニズムのコーディング（3.4 学習可能な重み、3.5 Causal Attention） | Stage 0で実装済み（`SelfAttention_v1`、`CausalAttention`） |
-| 第3章 3.6 Multi-head Attention | Stage 5。本と同じく `MultiHeadAttentionWrapper`（ヘッドを並べて連結）→ `MultiHeadAttention`（1つの行列を分割）の2段階で作る |
+| 第3章 3.6 Multi-head Attention | Stage 5。本の 3.6.1 `MultiHeadAttentionWrapper`（`CausalAttention` を並べて連結）の形に `out_proj` を足したものを `MultiHeadAttention` にする。3.6.2 の「1つの行列を `view`・`transpose` で分割する」形は作らない |
 | 第4章 GPTモデルを一から実装する（4.2 LayerNorm、4.3 GELU/FFN、4.4 ショートカット、4.5 Transformerブロック） | Stage 0で実装済み |
-| 第4章 4.6 GPTモデル | Stage 0で1層版 `OneLayerOneHeadGPT` を実装済み。層を積む `OneHeadGPT` はStage 4、Multi-head化した `GPTModel` はStage 5 |
+| 第4章 4.6 GPTモデル | Stage 0で1層版 `OneLayerOneHeadGPT` を実装済み。層を積む `OneHeadGPT` はStage 4、Multi-head化した `GPT` はStage 5 |
 | 第4章 4.7 テキストを生成する | Stage 2。本の `generate_text_simple`（greedy）は作らず、最初から `generate`（`temperature=0` でgreedy）にする |
 | 第5章 ラベルなしデータでの事前学習（5.1 評価、5.2 訓練、5.3 デコーディング戦略、5.4 保存と読み込み） | Stage 2〜3。損失関数・訓練ループ・temperature・保存。5.3.2 top-kは学習後の生成を見て必要なら足す |
 | 第5章 5.5 OpenAIの重みを読み込む | やらない。語彙もサイズも違うので読み込めない |
@@ -33,10 +33,11 @@
 
 - Tokenizerは1文字1token。trainに現れた文字にEOS・UNKを加えた語彙（約4,052）。tiktokenのGPT-2 BPEは日本語がbyte断片になり生成結果が読めないため使わない
 - 学習データは `hotchpotch/fineweb-2-edu-japanese` の `small_tokens_cleaned` から固定した1万文書（train 9,000・validation 1,000）。取得条件は `data/fineweb-japanese-10k/manifest.json`
-- 本の `GPTModel` は `n_layers`・`n_heads` を最初から持つが、ここでは1層1ヘッドと分かる `OneLayerOneHeadGPT` を先に作り、層を積む版は `OneHeadGPT`（`n_layers` 可変・1ヘッド固定）、Multi-head版は `GPTModel`（`n_layers`・`n_heads`）と、名前で何が可変かを示す別クラスとして足す。`OneLayerOneHeadGPT` は比較の基準として残す
+- 本の `GPTModel` は `n_layers`・`n_heads` を最初から持つが、ここでは1層1ヘッドと分かる `OneLayerOneHeadGPT` を先に作り、層を積む版は `OneHeadGPT`（`n_layers` 可変・1ヘッド固定）、Multi-head版は `GPT`（`n_layers`・`n_heads`）と、名前で何が可変かを示す別クラスとして足す。`OneLayerOneHeadGPT` は比較の基準として残す
 - 層数・ヘッド数の比較は `config.py` の値を手で変えて `main.py train` を回す。CLIの上書き引数は作らない。run名と設定は `runs/<run_name>/config.json` に残るので再現できる
 - MLP中間次元は本どおり `4 * d_model` 固定。dropoutなし。Q/K/Vと出力層はbiasなし
 - Causal maskは本の `CausalAttention` と同じ `triu(diagonal=1)` + `masked_fill(-inf)`
+- `MultiHeadAttention` は本の 3.6.2 の分割方式ではなく、`CausalAttention` を `nn.ModuleList` に並べて `torch.cat` する形（本の 3.6.1 `MultiHeadAttentionWrapper`）に `out_proj` を足したものにする。ヘッドが別モジュールなので構造が読みやすく、ヘッドごとのAttention weightも取り出しやすい。分割方式は掛け算の総量は同じままPyTorchに演算を投げる回数を減らすものだが、このサイズ（128次元・4ヘッド）では速くならなかった（`progress.md`）。`out_proj` は本と同じくbiasあり
 - 本では `GPT_CONFIG_124M` の辞書だが、ここでは `Config` クラス（型付き）にする
 - 訓練ループは本の `train_model_simple` のepoch単位ではなく、`steps` 回の更新で回す。層数・ヘッド数の比較で「同じ回数だけ更新した」とそろえるため。trainは1,447バッチなので5,000stepは約3.5周
 - 学習中の評価は、本と同じく訓練セット・検証セットの先頭 `eval_batches` バッチで行う。ただし訓練用の `DataLoader` は `shuffle=True` で毎回違う窓が出るので、評価用に `shuffle=False` の `DataLoader` を別に作り、毎回同じ窓で測る
@@ -137,11 +138,10 @@ Stage 3以降の `main.py` は次の3つのサブコマンドを持つ。
 
 ### Stage 5：Multi-head Attention（本 3.6）
 
-- まず `MultiHeadAttentionWrapper`（`CausalAttention` を `n_heads` 個並べて連結）を作り、出力の次元が `n_heads * d_out` になることを確認する
-- 次に `MultiHeadAttention`（1つの `W_query` などを `n_heads` に分割し、`view`・`transpose` で並列計算し、`out_proj` で戻す）を作り、`d_model` を固定したままヘッド数だけ変えられるようにする
-- Configに `n_heads` を追加し、`OneHeadGPT` を元にAttentionを `MultiHeadAttention` に置き換えた `GPTModel` を作る。`n_heads=1` で `OneHeadGPT` と結果が変わらないことを確認する
-- 実験：`d_model=128` に固定して1・2・4ヘッドを比べる。Q/K/Vのパラメータ数がヘッド数で変わらないことを確認する
-- 観察：ヘッドごとのAttention weightを同じ入力で並べ、ヘッドによって見る位置が違うか。lossと生成は変わるか
+- `MultiHeadAttention`（`CausalAttention` を `d_model / n_heads` 次元で `n_heads` 個並べて連結し、`out_proj` で混ぜる）を作り、`d_model` を固定したままヘッド数だけ変えられるようにする。Configに `n_heads` を追加する
+- `TransformerBlock` がAttentionを外から受け取る形に変え、`OneHeadGPT` を元にAttentionを `MultiHeadAttention` にした `GPT` を作る。`n_heads=1` の `GPT` に `OneHeadGPT` の重みを流し込み、`out_proj` を単位行列にすると結果が一致することを確認する（`out_proj` があるので、そのままでは一致しない）
+- 実験：4層・`d_model=128` で1ヘッドと4ヘッドを比べる。Q/K/Vのパラメータ数がヘッド数で変わらないことを確認する。`OneHeadGPT` の4層runとも並べ、`out_proj` だけの効果も読む
+- 観察：4ヘッドのrunでヘッドごとのAttention weightを同じ入力で並べ、ヘッドによって見る位置が違うか。lossと生成は変わるか
 
 ### Stage 6：その後の候補
 

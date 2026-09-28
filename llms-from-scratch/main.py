@@ -10,7 +10,7 @@ from config import Config
 from dataset import create_dataloader, join_texts_with_eos, load_texts
 from evaluate import MAX_NEW_TOKENS, evaluate_validation, generate_samples
 from generate import generate, text_to_token_ids, token_ids_to_text
-from gpt import OneHeadGPT
+from gpt import GPT
 from plot import save_loss_plot
 from tokenizer import CharTokenizer
 from train import train_model
@@ -64,7 +64,7 @@ def run_train(config: Config, run_name: str) -> None:
         device=config.device,
     )
 
-    model = OneHeadGPT(tokenizer.vocab_size, config)
+    model = GPT(tokenizer.vocab_size, config)
     model.to(config.device)
     # パラメータ数。numel はテンソルの要素数を返す
     total_params = 0

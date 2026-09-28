@@ -39,7 +39,11 @@
 | 活性化関数 | activation | 全結合層の間に挟む非線形な関数。GELU、ReLUなど |
 | Attention | Self-Attention、注意機構 | 各位置が他の位置をどれだけ参照するかを計算し、参照先の値を加重和で取り込む部品 |
 | Causal Attention | マスク付きAttention、masked attention | 未来の位置を見られないようにマスクしたAttention。GPTはこれ |
-| Multi-head Attention | MHA | Attentionを複数個（ヘッド）並列に計算して連結したもの。Stage 5 |
+| Multi-head Attention | MHA | Attentionを複数個（ヘッド）並列に計算して連結したもの。ヘッドごとにQ/K/Vの重みが別なので、別々の位置に注目できる。Stage 5 |
+| ヘッド | head、Attentionヘッド | Multi-head Attentionの中の1つのAttention。`d_model` を `n_heads` で等分した幅で計算する。1つだけならSingle-head |
+| `head_dim` | ヘッドの幅 | 1ヘッドが使う次元数。`d_model / n_heads`。128次元・4ヘッドなら32。softmaxの前に割る√はこの値の平方根 |
+| 出力射影 | `out_proj`、output projection | Multi-head Attentionの最後にある全結合層。連結したヘッドの出力を混ぜて `d_model` 次元に作り直す。これがないと各ヘッドの出力は `x` の決まった区画にしか書けない |
+| 残差ストリーム | residual stream | ショートカット接続で各ブロックが差分を足していく、幅 `d_model` の1本の流れ `x` のこと。本にはない呼び方だが解説記事でよく使われる |
 | Q・K・V | クエリ・キー・値 | Attentionの3つの射影。クエリは「何を探すか」、キーは「照合される側」、値は「取り出す内容」 |
 | Attentionの重み | attention weight | softmax後の参照割合。行ごとに合計1 |
 | Transformerブロック | Block、層 | 層正規化 → Attention → ショートカット接続 → 層正規化 → FFN → ショートカット接続の1まとまり。これを積んだ数が「層数」 |
