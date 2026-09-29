@@ -84,7 +84,8 @@ llms-from-scratch/
   gpt.py           モデルの部品とGPT本体（本のgpt.pyに相当）
   tokenizer.py     文字Tokenizer（Stage 1）
   dataset.py       GPTDataset + DataLoader（Stage 1）
-  generate.py      generate（temperature付き。Stage 2）
+  generate.py      generate（temperature付き。Stage 2。Stage 7で use_kv_cache を追加）
+  kv_cache.py      生成で持ち越すキーと値の入れ物（Stage 7）
   train.py         損失・評価・訓練ループ（Stage 2〜3）
   evaluate.py      全バッチのloss計算・評価用promptの生成
   plot.py          学習中のloss曲線の描画
@@ -94,6 +95,7 @@ llms-from-scratch/
   experiments/     ショートカット接続を外すなど、main.py の学習では表せない実験のスクリプト。必要になったら作る
   runs/            実行結果（model.pt、config.json、vocab.json、metrics.json、loss.png）。commitしない。残したい結果は evaluation-results.md に書く
   evaluation-results.md  評価結果。runごとの条件・loss・生成・観察
+  kv-cache-results.md    KVキャッシュあり・なしの生成時間とキャッシュの大きさ（Stage 7）
   docs/            用語集など学習用の資料
   data/            固定した日本語データと評価prompt（evaluation-prompts.json）
   prepare_data.py  データ取得
@@ -153,9 +155,13 @@ Stage 3以降の `main.py` は次の3つのサブコマンドを持つ。
 
 `ku-nlp/gpt2-small-japanese-char` を `JpCharGPT2` に読み込み、`evaluate` と3つの `visualize-*` を自作の `l12h12-d768-s5000-lr1e-3` と同じ条件でかける（2026-09-29に決定。計画は `pretrained-model-plan.md`）。目的は、学習の進んだモデルで可視化ツールの読み方を確かめることと、その後のfine-tuningの起点を持つこと。
 
-### Stage 7：その後の候補
+### Stage 7：KVキャッシュ（本にはない。著者のGitHubの補足資料 `ch04/03_kv-cache` に相当）
 
-Stage 6まで終えてから、次のどれをやるか決める。
+`generate` にKVキャッシュを足し、生成が速くなることと結果が変わらないことを確かめる（2026-09-29に決定。計画は `kv-cache-plan.md`、結果は `kv-cache-results.md`）。目的は、Causal Attentionの「過去の位置の出力は後ろに文字が増えても変わらない」性質の確認と、プロンプトキャッシュに関する3つの問いに実測から答えること。
+
+### Stage 8：その後の候補
+
+Stage 7まで終えてから、次のどれをやるか決める。
 
 - 付録D：warmup・cosine減衰・勾配クリッピングを入れて学習が安定・改善するか
 - 第7章：小さな日本語の指示データでInstruction Tuning。起点は `JpCharGPT2`
