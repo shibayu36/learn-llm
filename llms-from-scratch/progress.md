@@ -4,7 +4,9 @@
 
 ## 現在の作業
 
-Stage 6「学習済みモデルの読み込み」の作業項目はすべて完了（2026-09-29）。ku-nlpの日本語1文字GPT-2 smallを `JpCharGPT2` に読み込み、評価を `evaluation-results.md` の「学習済みモデル」、可視化3種の観察を `visualization-results.md` の「学習済みモデル」に記録した。次はStage 7の候補（付録D・第7章）からどれをやるか決める。
+Stage 7「KVキャッシュ」を進めている（2026-09-29に開始。計画は `kv-cache-plan.md`）。段階1の生成時間の表示まで完了。次は段階2の `kv_cache.py`（`HeadKVCache`・`KVCache`）と `CausalAttention.forward(x, cache=None)`。
+
+Stage 6「学習済みモデルの読み込み」の作業項目はすべて完了（2026-09-29）。ku-nlpの日本語1文字GPT-2 smallを `JpCharGPT2` に読み込み、評価を `evaluation-results.md` の「学習済みモデル」、可視化3種の観察を `visualization-results.md` の「学習済みモデル」に記録した。
 
 Stage 5（Multi-head Attention）は、4層・128次元で1ヘッド（`l4h1-d128-s5000-lr1e-3-outproj`）と4ヘッド（`l4h4-d128-s5000-lr1e-3`）を学習・評価し、`evaluation-results.md` の「ヘッド数」に記録した。4ヘッドのrunでのヘッドごとのAttention weightの観察は未着手。Stage 6の下見としてGPT-2 smallの形（`l12h12-d768-s5000-lr1e-3`）も学習し、`evaluation-results.md` の「モデル規模」に記録した。同runの `visualize-hidden-states`・`visualize-embeddings` は生成済みで、近傍コーパスをvalidation全体に広げた（下記）。観察は `visualization-results.md` には記録していない（「学習済みモデル」の節は学習済みモデルだけを読む）。`config.py` は `d_model=128`・`n_layers=4`・`n_heads=4`・`steps=5000` に戻してある。固定10promptの学習前出力は未記録。
 
@@ -106,6 +108,17 @@ Stage 5（Multi-head Attention）は、4層・128次元で1ヘッド（`l4h1-d12
 - [x] `generate`・`evaluate`・`visualize-attention`・`visualize-hidden-states`・`visualize-embeddings` を `--run-name ku-nlp-gpt2-small-char` で回した。全バッチvalidation loss 1.706350（モデルカードの eval loss 1.597 と桁が合う）。`visualize-hidden-states` は窓1,024で約4分（2026-09-29）
 - [x] `plan.md` の「5.5 やらない。語彙もサイズも違うので読み込めない」を今回の決定に書き換え、「本から変える決定事項」に `JpCharGPT2`・変換スクリプト・`JpCharGPT2Tokenizer` を追記した。Stage 6を「学習済みモデルの読み込み」にし、付録D・第7章はStage 7の候補に繰り下げた（2026-09-29）
 - [x] 評価（全バッチloss・固定10prompt）を `evaluation-results.md` の「学習済みモデル」に、可視化3種の観察を `visualization-results.md` の「学習済みモデル」に記録した。自作の `l12h12-d768-s5000-lr1e-3` との比較は読みにくくなるので載せない（2026-09-29）
+
+## Stage 7：KVキャッシュ
+
+`generate` にKVキャッシュを足し、生成が速くなることと結果が変わらないことを確かめる。設計と決めたことは `kv-cache-plan.md`。
+
+- [x] `main.py generate` に生成時間と1文字あたりの時間を出す。`l4h4-d128-s5000-lr1e-3` は100文字 0.22秒（2.2ms/文字）、`ku-nlp-gpt2-small-char` は3.95秒（39.5ms/文字）。CPU、キャッシュなし（2026-09-29）
+- [ ] `kv_cache.py`（`HeadKVCache`・`KVCache`）と `CausalAttention.forward(x, cache=None)`。1ヘッド単体で一括と1文字ずつの出力が一致すること、`evaluate --run-name l4h4-d128-s5000-lr1e-3` の全バッチloss 3.094512 が変わらないこと
+- [ ] `MultiHeadAttention`・`TransformerBlock`・`GPT`・`JpCharGPT2` の配線。`l4h4-d128-s5000-lr1e-3` とku-nlpで一括と1文字ずつの末尾logitsが一致すること
+- [ ] `generate` の `use_kv_cache` と `main.py generate --kv-cache`。固定10promptのgreedy 100文字が有無で一致、同seedのsamplingの一致、上限超えの例外、`visualize-attention` が変わらないこと
+- [ ] `kv-cache-results.md`：2モデルの100文字の生成時間の比較、ku-nlpのキャッシュの大きさ、プロンプトキャッシュ・effort・有効期限の3つの問いへの考察
+- [ ] `progress.md`・`docs/glossary.md`・解説HTML `docs/demos/KVキャッシュで生成が速くなる理由.html` の「今の実装」を実装後に合わせる
 
 ## 実行して分かったこと
 
