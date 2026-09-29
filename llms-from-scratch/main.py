@@ -114,6 +114,7 @@ def run_generate(run_name: str, prompt: str, temperature: float, max_new_tokens:
     model, config, tokenizer = load_run(RUNS_DIR / run_name)
     model.eval()
     context_ids = text_to_token_ids(prompt, tokenizer)
+    start_time = time.perf_counter()
     token_ids = generate(
         model,
         context_ids,
@@ -121,7 +122,12 @@ def run_generate(run_name: str, prompt: str, temperature: float, max_new_tokens:
         context_size=config.context_length,
         temperature=temperature,
     )
+    elapsed = time.perf_counter() - start_time
     print(token_ids_to_text(token_ids, tokenizer))
+    print(
+        f"生成時間: {elapsed:.2f}秒"
+        f"（{max_new_tokens}文字、1文字あたり {elapsed / max_new_tokens * 1000:.1f}ms）"
+    )
 
 
 def run_evaluate(run_name: str) -> None:
