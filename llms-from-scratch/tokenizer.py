@@ -12,7 +12,7 @@ UNKNOWN = "<|unk|>"
 class CharTokenizer:
     def __init__(self, vocab: list[str]) -> None:
         # vocab はトークン文字列のリストで、リストの添字がそのままトークンIDになる。
-        # 末尾2つは <|endoftext|> と <|unk|>
+        # <|endoftext|> と <|unk|> は名前で探すので、リストのどこにあってもよい
         self.int_to_str: dict[int, str] = {}
         self.str_to_int: dict[str, int] = {}
         for token_id in range(len(vocab)):

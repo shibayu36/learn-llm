@@ -21,7 +21,8 @@ Stage 5（Multi-head Attention）は、4層・128次元で1ヘッド（`l4h1-d12
 - optimizerは本と同じく `train_model` の外で作って渡す形のままにする。モデルとoptimizerは `.grad` を通して暗黙につながるので、optimizerは必ずそのモデルの `parameters()` で作る。Stage 6でスケジューラやパラメータのグループ分けを入れるときも外で作る
 - 学習済みモデルは `GPT` を拡張せず、別クラス `JpCharGPT2` にする。`GPT` は教材の本体でStageごとに変わりうるので、固定して使う学習済みモデルと切り離す。`LayerNorm`・`FeedForward`・`TransformerBlock` は共有し、違いはQ/K/Vのbiasと出力ヘッドの重み共有だけにする
 - Hugging Faceの重みは変換スクリプトで `runs/` の形式（model.pt・config.json・vocab.json）に保存し、`load_run` には変換の処理を入れない。既存の `generate`・`evaluate`・`visualize-*` がそのまま使えるため
-- ku-nlpのtokenizerは公式の `vocab.json` を復号して `CharTokenizer` の語彙にする。6,000語彙のうち5,992が1文字で、実質的に文字表のため。`</s>`（ID 3）を `<|endoftext|>`、`[UNK]`（ID 0）を `<|unk|>` に付け替え、IDは変えない。語彙にない文字は公式ではバイト片に分かれ、変換後は `<|unk|>` になる点だけが違う。半角スペースは公式でも消えるので、promptでは全角スペースを使う
+- Causal maskのbufferは `persistent=False` にして `model.pt` に保存しない。`context_length` から作り直せる固定の表で、ヘッドごとに1つ持つので12層12ヘッド・窓1,024では144個・604MBになるため
+- ku-nlpのtokenizerは公式の `vocab.json` を復号して `CharTokenizer` の語彙にする。6,000語彙のうち5,992が1文字で、実質的に文字表のため。`</s>`（ID 3）を `<|endoftext|>`、`[UNK]`（ID 0）を `<|unk|>` に付け替え、IDは変えない。公式（transformers 4.xのPython実装 `GPT2Tokenizer`）との差は、語彙にない文字が公式ではバイト片に分かれ、変換後は `<|unk|>` になる点だけ。半角スペースと改行は公式でも `[UNK]` になり、変換後と一致する。Rust実装の公式（`GPT2TokenizerFast`、transformers 5系）は語彙にないtokenを黙って落とすので、半角スペースと改行が消える。promptでは語彙にある全角スペースを使う
 
 ## Stage 0：部品の実装
 
@@ -97,9 +98,9 @@ Stage 5（Multi-head Attention）は、4層・128次元で1ヘッド（`l4h1-d12
 
 - [x] `CausalAttention`・`MultiHeadAttention` に `qkv_bias` 引数（既定False）を足す。`l4h4-d128-s5000-lr1e-3`（`GPT`）と `l4h1-d128-s5000-lr1e-3`（`OneHeadGPT`）を `evaluate` し直し、全バッチvalidation loss（3.094512・3.067810）と全20出力が変更前の `metrics.json` と一致した（2026-09-29）
 - [x] `gpt.py` に `JpCharGPT2(vocab_size, config)` を作る。`GPT` と同じ構造でQ/K/Vにbiasあり、出力ヘッドはトークン埋め込みと重み共有。`checkpoint.load_run` に分岐を足す。GPT-2 smallの形（語彙6,000）でパラメータ数が `GPT` より bias分 27,648 多く共有分 4,608,000 少ない 90,450,432 になること、logitsが `final_norm` 後のベクトルと埋め込み表の内積に一致すること、`save_run`→`load_run` の往復でlogitsと共有が保たれることを `tmp/check_jp_char_gpt2.py` で確認した（2026-09-29）
-- [ ] 変換スクリプト `import_hf_gpt2.py`：`huggingface-hub` で `model.safetensors`・`config.json`・`vocab.json`・`merges.txt` を取得し、`JpCharGPT2` に重みを流し込み、語彙を `CharTokenizer` の形に変換して `runs/ku-nlp-gpt2-small-char/` に `save_run` する。`config.json` の層数・次元・ヘッド数・`context_length` はHF側の `config.json` から取る。依存に `safetensors` を足す
-- [ ] 一致確認（`tmp/`、commitしない）：`uv run --with transformers` で本物の `GPT2LMHeadModel` と同じ入力のlogitsが一致すること。変換後の `CharTokenizer` のencodeが、評価promptとhidden state用の文で公式tokenizerと一致すること
-- [ ] `generate`・`evaluate`・`visualize-attention`・`visualize-hidden-states`・`visualize-embeddings` を `--run-name ku-nlp-gpt2-small-char` で回す
+- [x] 変換スクリプト `import_hf_gpt2.py`：`huggingface-hub` で `model.safetensors`・`config.json`・`vocab.json`・`merges.txt` を取得し、`JpCharGPT2` に重みを流し込み、語彙を `CharTokenizer` の形に変換して `runs/ku-nlp-gpt2-small-char/` に `save_run` する。`config.json` の層数・次元・ヘッド数・`context_length` はHF側の `config.json` から取る。依存に `safetensors` を足す。先に `CausalAttention` のmaskを `persistent=False` にして `model.pt` から外し（966MB → 362MB）、既存9runの `model.pt` からもmaskキーを除いて `load_run` とgreedy生成が変わらないことを確認した。変換後のパラメータ数は90,450,432（2026-09-29）
+- [x] 一致確認（`tmp/check_import_hf_gpt2.py`、commitしない）：本物の `GPT2LMHeadModel` とhidden state用6文のlogitsの最大絶対差 2.3e-05。「日本の首都は」と6文の先頭文をpromptにしたgreedy 30文字の生成が一致。tokenizerは評価prompt10本と6文の計16本で比べ、Python実装の公式と同じ挙動（語彙にないtokenは `[UNK]`）のBPEと16本すべて一致した。改行を含むprompt 09・10は、Rust実装の公式（改行を黙って落とす）とだけ食い違う。`generate` で「日本の首都は」→「、東京都、神奈川県、埼玉県、千葉県、…」（2026-09-29）
+- [ ] `generate`・`evaluate`・`visualize-attention`・`visualize-hidden-states`・`visualize-embeddings` を `--run-name ku-nlp-gpt2-small-char` で回す。その前に、半角スペース・改行（変換後は `<|unk|>`）の扱いと、promptや文書の先頭に `<s>` を付けるかを決める（`pretrained-model-plan.md` の「注意」）
 - [ ] `plan.md` の「5.5 やらない。語彙もサイズも違うので読み込めない」を今回の決定に書き換え、「本から変える決定事項」に `JpCharGPT2` と変換スクリプトを追記する
 - [ ] 観察を `visualization-results.md` の「モデル規模」に記録し、自作の `l12h12-d768-s5000-lr1e-3` と並べる
 

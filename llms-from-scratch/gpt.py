@@ -50,10 +50,11 @@ class CausalAttention(nn.Module):
         # この形になる。forwardでは1の場所のスコアを -inf にしてAttentionの重みを
         # 0にする。実際の表は context_length × context_length で、入力の長さ分だけ
         # 切り出す。訓練で更新する値ではなく固定の表なので、parameterではなくbufferに
-        # 登録する
+        # 登録する。
         self.register_buffer(
             "mask",
             torch.triu(torch.ones(context_length, context_length), diagonal=1),
+            persistent=False, # context_length から作り直せるのでmodel.pt の保存対象からも外す
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
