@@ -4,7 +4,9 @@
 
 ## 現在の作業
 
-Stage 5（Multi-head Attention）を進行中（2026-09-28）。4層・128次元で1ヘッド（`l4h1-d128-s5000-lr1e-3-outproj`）と4ヘッド（`l4h4-d128-s5000-lr1e-3`）を学習・評価し、`evaluation-results.md` の「ヘッド数」に記録した。次は4ヘッドのrunでヘッドごとのAttention weightを観察する。Stage 6の下見としてGPT-2 smallの形（`l12h12-d768-s5000-lr1e-3`）も学習し、`evaluation-results.md` の「モデル規模」に記録した。同runの `visualize-hidden-states`・`visualize-embeddings` は生成済みで、近傍コーパスをvalidation全体に広げた（下記）。観察の `visualization-results.md` への記録は未着手。`config.py` は `d_model=128`・`n_layers=4`・`n_heads=4`・`steps=5000` に戻してある。固定10promptの学習前出力は未記録。
+Stage 6「学習済みモデルの読み込み」を進行中（2026-09-29）。ku-nlpの日本語1文字GPT-2 smallを自作コードに読み込む。作業項目は下記のStage 6の節。
+
+Stage 5（Multi-head Attention）は、4層・128次元で1ヘッド（`l4h1-d128-s5000-lr1e-3-outproj`）と4ヘッド（`l4h4-d128-s5000-lr1e-3`）を学習・評価し、`evaluation-results.md` の「ヘッド数」に記録した。4ヘッドのrunでのヘッドごとのAttention weightの観察は未着手。Stage 6の下見としてGPT-2 smallの形（`l12h12-d768-s5000-lr1e-3`）も学習し、`evaluation-results.md` の「モデル規模」に記録した。同runの `visualize-hidden-states`・`visualize-embeddings` は生成済みで、近傍コーパスをvalidation全体に広げた（下記）。観察の `visualization-results.md` への記録は未着手。`config.py` は `d_model=128`・`n_layers=4`・`n_heads=4`・`steps=5000` に戻してある。固定10promptの学習前出力は未記録。
 
 ## 作業の決め事
 
@@ -17,6 +19,9 @@ Stage 5（Multi-head Attention）を進行中（2026-09-28）。4層・128次元
 - hidden stateの「近い文脈」はvalidation全体から探し、「同じ2文字」「同じ文字・前が違う」「別の文字」の3列に分けて出す。先頭4万位置では対象の熟語が1〜2回しか出ず、全体にすると同じ単語だけで上位10が埋まるため
 - hidden stateの「偶然の水準」は「別の文字」の位置だけで取る。全位置で取ると「の」のように数万回出る文字では上位0.1%が同じ文字で埋まり、水準にならないため
 - optimizerは本と同じく `train_model` の外で作って渡す形のままにする。モデルとoptimizerは `.grad` を通して暗黙につながるので、optimizerは必ずそのモデルの `parameters()` で作る。Stage 6でスケジューラやパラメータのグループ分けを入れるときも外で作る
+- 学習済みモデルは `GPT` を拡張せず、別クラス `JapaneseCharGPT2` にする。`GPT` は教材の本体でStageごとに変わりうるので、固定して使う学習済みモデルと切り離す。`LayerNorm`・`FeedForward`・`TransformerBlock` は共有し、違いはQ/K/Vのbiasだけにする
+- Hugging Faceの重みは変換スクリプトで `runs/` の形式（model.pt・config.json・vocab.json）に保存し、`load_run` には変換の処理を入れない。既存の `generate`・`evaluate`・`visualize-*` がそのまま使えるため
+- ku-nlpのtokenizerは公式の `vocab.json` を復号して `CharTokenizer` の語彙にする。6,000語彙のうち5,992が1文字で、実質的に文字表のため。`</s>`（ID 3）を `<|endoftext|>`、`[UNK]`（ID 0）を `<|unk|>` に付け替え、IDは変えない。語彙にない文字は公式ではバイト片に分かれ、変換後は `<|unk|>` になる点だけが違う。半角スペースは公式でも消えるので、promptでは全角スペースを使う
 
 ## Stage 0：部品の実装
 
@@ -80,6 +85,23 @@ Stage 5（Multi-head Attention）を進行中（2026-09-28）。4層・128次元
 
 - [x] モデル拡大の下見：GPT-2 smallの形（12層・12ヘッド・768次元）を5,000step学習し、lossと生成と過剰適合の出方を見た（`l12h12-d768-s5000-lr1e-3`、2026-09-28）
 - [ ] Stage 5の結果を見て、付録D・第7章・モデル拡大のどれをやるか決める
+
+## Stage 6：学習済みモデルの読み込み（ku-nlp/gpt2-small-japanese-char）
+
+171GBの日本語で学習された1文字単位のGPT-2 small（12層・12ヘッド・768次元）を自作コードに読み込む。目的は2つ（2026-09-29に決定）。
+
+- 可視化ツールを学習の進んだモデルにかけ、Stage 4・5と自作の `l12h12-d768-s5000-lr1e-3` の観察と比べる
+- fine-tuning（付録D・第7章）の起点にする。ゼロから学習した自作モデルではfine-tuning前後の差が読みにくい
+
+手元で回せる根拠は、同じ形の `l12h12-d768-s5000-lr1e-3` の実績。学習は1step 0.84秒（B=16・T=256・MPS）なので第7章の規模（約1,100件を2周、300step弱）なら数分、hidden stateの近傍探索は3分22秒（CPU）。本の5.5「OpenAIの重みを読み込む」を日本語文字モデルで行うことに相当する。作り方（重みの対応表・語彙の変換・一致確認の方法）は `pretrained-model-plan.md`。
+
+- [x] `CausalAttention`・`MultiHeadAttention` に `qkv_bias` 引数（既定False）を足す。`l4h4-d128-s5000-lr1e-3`（`GPT`）と `l4h1-d128-s5000-lr1e-3`（`OneHeadGPT`）を `evaluate` し直し、全バッチvalidation loss（3.094512・3.067810）と全20出力が変更前の `metrics.json` と一致した（2026-09-29）
+- [ ] `japanese_char_gpt2.py` に `JapaneseCharGPT2(vocab_size, config)` を作る。`GPT` と同じ構造でQ/K/Vにbiasあり。`checkpoint.load_run` に分岐を足す
+- [ ] 変換スクリプト `import_hf_gpt2.py`：`huggingface-hub` で `model.safetensors`・`config.json`・`vocab.json`・`merges.txt` を取得し、`JapaneseCharGPT2` に重みを流し込み、語彙を `CharTokenizer` の形に変換して `runs/ku-nlp-gpt2-small-char/` に `save_run` する。`config.json` の層数・次元・ヘッド数・`context_length` はHF側の `config.json` から取る。依存に `safetensors` を足す
+- [ ] 一致確認（`tmp/`、commitしない）：`uv run --with transformers` で本物の `GPT2LMHeadModel` と同じ入力のlogitsが一致すること。変換後の `CharTokenizer` のencodeが、評価promptとhidden state用の文で公式tokenizerと一致すること
+- [ ] `generate`・`evaluate`・`visualize-attention`・`visualize-hidden-states`・`visualize-embeddings` を `--run-name ku-nlp-gpt2-small-char` で回す
+- [ ] `plan.md` の「5.5 やらない。語彙もサイズも違うので読み込めない」を今回の決定に書き換え、「本から変える決定事項」に `JapaneseCharGPT2` と変換スクリプトを追記する
+- [ ] 観察を `visualization-results.md` の「モデル規模」に記録し、自作の `l12h12-d768-s5000-lr1e-3` と並べる
 
 ## 実行して分かったこと
 
@@ -211,3 +233,13 @@ Stage 5（Multi-head Attention）を進行中（2026-09-28）。4層・128次元
 
 - 全層のベクトルを溜めると13層×657k×768次元で約26GBになるので、窓ごとにforwardして上位だけを残す `search_neighbors` にした。旧方式と同じ39,936位置で比べ、Layer 1以降の上位は全体・分類ごととも一致（`tmp/check_search_neighbors.py`、commitしない）。Layer 0は同じ文字が同じ窓内位置にあるとベクトルが同一になり、同点の並びだけ変わる
 - 実行時間は4層で15秒、12層で3分22秒（CPU）
+
+### Stage 6：日本語GPT-2の学習済みモデルの調査（2026-09-29）
+
+Hugging Face上でGPT-2アーキテクチャ（`GPT2LMHeadModel`）の日本語モデルを調べ、`ku-nlp/gpt2-small-japanese-char` を選んだ。
+
+- 1文字単位のモデルは `ku-nlp/gpt2-{small,medium,large}-japanese-char` だけ。他はSentencePiece（rinna・abeja・colorfulscoop）、6万語彙のBPE（ClassCat）、Juman++の分かち書き前提（nlp-waseda）で、サブワード単位
+- ku-nlp smallは12層・768次元・12ヘッド・位置埋め込み1,024・語彙6,000・`gelu_new`（tanh近似）・LayerNorm eps 1e-5。Wikipedia + CC-100 + OSCARの171GBをA100 1枚で約3か月。`model.safetensors` は374MB
+- 自作 `GPT` との差は4点。Q/K/Vにbiasがある、Q/K/Vが1つの `c_attn`（768×2,304）に全ヘッド分連結されている、出力ヘッドがトークン埋め込みと同じ行列、位置埋め込みが1,024行。GELU・LayerNorm・Pre-LayerNorm・ショートカット接続の順序は同じ。dropout（0.1）は推論では無効
+- tokenizerは公式の `vocab.json`・`merges.txt` が付属する。「日本の首都は東京です。」は11文字→11token、「鬱蒼とした森で薔薇が咲く」も12文字→12token。`vocab.json` のキーはUTF-8のバイトを表示用の文字に置き換えた形（「日」は `æĹ¥`）で、文字に戻す復号が要る。半角スペースはtokenにならず消える（モデルカードの「全角スペースを使う」注意はこのため）
+- `config.json` の `eos_token_id` は2だが、`vocab.json` ではID 2が `<s>`、3が `</s>`。文書区切りには `</s>` を使い、生成結果で確かめる

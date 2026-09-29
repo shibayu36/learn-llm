@@ -24,14 +24,18 @@ class SelfAttention_v1(nn.Module):
 
 
 class CausalAttention(nn.Module):
-    def __init__(self, d_in: int, d_out: int, context_length: int) -> None:
+    def __init__(
+        self, d_in: int, d_out: int, context_length: int, qkv_bias: bool = False
+    ) -> None:
         super().__init__()
         # 入力xをクエリ・キー・値の3種類のベクトルに射影する訓練可能な重み行列。
         # 情報検索の比喩で、クエリはいま注目しているトークン、キーはクエリと照合する
         # インデックス、値は取り出される実際の内容にあたる。
-        self.W_query = nn.Linear(d_in, d_out, bias=False)
-        self.W_key = nn.Linear(d_in, d_out, bias=False)
-        self.W_value = nn.Linear(d_in, d_out, bias=False)
+        # qkv_bias は射影にバイアスベクトルを足すかどうか。性能に寄与しないので現代の
+        # LLMは持たないのが標準。GPT-2の公開重みを読み込むときだけ形を合わせてTrueにする
+        self.W_query = nn.Linear(d_in, d_out, bias=qkv_bias)
+        self.W_key = nn.Linear(d_in, d_out, bias=qkv_bias)
+        self.W_value = nn.Linear(d_in, d_out, bias=qkv_bias)
         # 各位置が「どの位置を見てはいけないか」を表す表。行が今いる位置、列が参照先
         # の位置で、1が未来（見てはいけない）、0が自分と過去（見てよい）。
         # 「日本の首」の4文字なら次の表になる。
@@ -99,14 +103,23 @@ class CausalAttention(nn.Module):
 # 本の 3.6.2 やGPT-2は、1つの大きな W_query で全ヘッド分を計算してから切り分ける。
 # 結果は同じで演算の呼び出し回数が減るだけなので、ここでは構造が読める並べる形にする
 class MultiHeadAttention(nn.Module):
-    def __init__(self, d_in: int, d_out: int, context_length: int, n_heads: int) -> None:
+    def __init__(
+        self,
+        d_in: int,
+        d_out: int,
+        context_length: int,
+        n_heads: int,
+        qkv_bias: bool = False,
+    ) -> None:
         super().__init__()
         if d_out % n_heads != 0:
             raise ValueError(f"d_out={d_out} は n_heads={n_heads} で割り切れない")
         head_dim = d_out // n_heads
         heads: list[nn.Module] = []
         for _ in range(n_heads):
-            heads.append(CausalAttention(d_in, head_dim, context_length))
+            heads.append(
+                CausalAttention(d_in, head_dim, context_length, qkv_bias=qkv_bias)
+            )
         # nn.ModuleList はモジュールを入れるリスト。素のlistに入れるとPyTorchが中の
         # パラメータを見つけられず、学習も保存もされない
         self.heads = nn.ModuleList(heads)
