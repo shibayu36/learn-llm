@@ -191,25 +191,37 @@ function renderIntro() {
     "その位置のhidden state（各層の出力ベクトル）を2つの方法で読む。";
 
   const p2 = document.createElement("p");
-  p2.appendChild(document.createTextNode(
+  p2.textContent =
     "「次の文字の予測」は、その層のベクトルをそのまま出力層（final_norm → out_head）に通したときの予測上位10件（logit lensという方法）。" +
-    "最終層以外では、途中経過のベクトルを無理やり最終出力の形式で読んでいるだけなので、参考程度に見ること。" +
+    "最終層以外では、途中経過のベクトルを無理やり最終出力の形式で読んでいるだけなので、参考程度に見ること。";
+
+  const p3 = document.createElement("p");
+  p3.appendChild(document.createTextNode(
     "「近い文脈」は、validationデータ全体の"
   ));
   const strong = document.createElement("strong");
   strong.textContent = numTokens;
-  p2.appendChild(strong);
-  p2.appendChild(document.createTextNode(
+  p3.appendChild(strong);
+  p3.appendChild(document.createTextNode(
     " tokenについて同じ層のベクトルを求め、対象ベクトルとコサイン類似度が高い位置を前後の文字つきで並べたもの。" +
-    "対象との関係で3列に分ける。「同じ2文字」（銀行の行）では単語を認識できているか、" +
-    "「同じ文字・前が違う」（旅行・進行の行）では文字を共有する別の単語からどれだけ離れたか、" +
-    "「別の文字」（預金の金、融資の資）ではどの単語の仲間になったかを読む。列の先頭の件数はその分類に入る位置の数。" +
-    "文の下の「偶然の水準」は、分類を問わず全位置の類似度を高い順に並べたときの上位" +
-    DATA.corpus.chance_rank.toLocaleString() + "位（0.1%）の値で、上位の類似度がこれに近ければ偶然の範囲と読む。"
+    "分けずに上位10を出すと、大きいモデルでは同じ単語の位置だけで埋まり、単語を認識していること以上が読めない。" +
+    "そこで対象との関係で3列に分ける。例えば対象が銀行の「行」なら、「同じ2文字」は他の銀行の行で、単語を認識できているかを読む。" +
+    "「同じ文字・前が違う」は旅行・進行の行で、文字を共有する別の単語からどれだけ離れたかを読む。" +
+    "「別の文字」は預金の金や融資の資で、どの単語の仲間になったかを読む。" +
+    "対象が「の」のとき、「同じ2文字」は他の「行の」で、単語ではない。列の意味は対象に合わせて読み替える。" +
+    "列の先頭の件数はその分類に入る位置の数。"
   ));
 
-  const p3 = document.createElement("p");
-  p3.textContent =
+  const p4 = document.createElement("p");
+  p4.textContent =
+    "文の下の「偶然の水準」は「別の文字」の列と比べるための目安で、「別の文字」の位置の類似度を高い順に並べたときの上位" +
+    DATA.corpus.chance_rank.toLocaleString() + "位（全位置の0.1%）の値。" +
+    "「別の文字」の上位10の類似度がこれに近いなら、同じくらい近い位置は他に数百ある。" +
+    "上位10はその中からたまたま選ばれただけなので、特にこの文脈に近いとは読まない。" +
+    "列ごとに候補の数が違い、候補が多いほど上位の値は高く出るので、列どうしの上位の値はそのまま比べない。";
+
+  const p5 = document.createElement("p");
+  p5.textContent =
     "Layer 0はtoken embeddingとposition embeddingを足しただけの入力なので、どの文でも同じベクトルになり、" +
     "次の文字の予測も近い文脈もどの文で見ても同じになる。層を進めると、文脈の違いによる差が表れてくる。" +
     "表中の␃は文書の区切り（<|endoftext|>）、␤は改行、�は語彙にない文字を表す記号。";
@@ -217,6 +229,8 @@ function renderIntro() {
   introEl.appendChild(p1);
   introEl.appendChild(p2);
   introEl.appendChild(p3);
+  introEl.appendChild(p4);
+  introEl.appendChild(p5);
 }
 renderIntro();
 
