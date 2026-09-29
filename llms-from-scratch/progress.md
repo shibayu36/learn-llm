@@ -4,9 +4,9 @@
 
 ## 現在の作業
 
-Stage 6「学習済みモデルの読み込み」を進行中（2026-09-29）。ku-nlpの日本語1文字GPT-2 smallを自作コードに読み込む。作業項目は下記のStage 6の節。
+Stage 6「学習済みモデルの読み込み」の作業項目はすべて完了（2026-09-29）。ku-nlpの日本語1文字GPT-2 smallを `JpCharGPT2` に読み込み、評価を `evaluation-results.md` の「学習済みモデル」、可視化3種の観察を `visualization-results.md` の「学習済みモデル」に記録した。次はStage 7の候補（付録D・第7章）からどれをやるか決める。
 
-Stage 5（Multi-head Attention）は、4層・128次元で1ヘッド（`l4h1-d128-s5000-lr1e-3-outproj`）と4ヘッド（`l4h4-d128-s5000-lr1e-3`）を学習・評価し、`evaluation-results.md` の「ヘッド数」に記録した。4ヘッドのrunでのヘッドごとのAttention weightの観察は未着手。Stage 6の下見としてGPT-2 smallの形（`l12h12-d768-s5000-lr1e-3`）も学習し、`evaluation-results.md` の「モデル規模」に記録した。同runの `visualize-hidden-states`・`visualize-embeddings` は生成済みで、近傍コーパスをvalidation全体に広げた（下記）。観察の `visualization-results.md` への記録は未着手。`config.py` は `d_model=128`・`n_layers=4`・`n_heads=4`・`steps=5000` に戻してある。固定10promptの学習前出力は未記録。
+Stage 5（Multi-head Attention）は、4層・128次元で1ヘッド（`l4h1-d128-s5000-lr1e-3-outproj`）と4ヘッド（`l4h4-d128-s5000-lr1e-3`）を学習・評価し、`evaluation-results.md` の「ヘッド数」に記録した。4ヘッドのrunでのヘッドごとのAttention weightの観察は未着手。Stage 6の下見としてGPT-2 smallの形（`l12h12-d768-s5000-lr1e-3`）も学習し、`evaluation-results.md` の「モデル規模」に記録した。同runの `visualize-hidden-states`・`visualize-embeddings` は生成済みで、近傍コーパスをvalidation全体に広げた（下記）。観察は `visualization-results.md` には記録していない（「学習済みモデル」の節は学習済みモデルだけを読む）。`config.py` は `d_model=128`・`n_layers=4`・`n_heads=4`・`steps=5000` に戻してある。固定10promptの学習前出力は未記録。
 
 ## 作業の決め事
 
@@ -104,8 +104,8 @@ Stage 5（Multi-head Attention）は、4層・128次元で1ヘッド（`l4h1-d12
 - [x] 一致確認（`tmp/check_import_hf_gpt2.py`、commitしない）：本物の `GPT2LMHeadModel` とhidden state用6文のlogitsの最大絶対差 2.3e-05。「日本の首都は」と6文の先頭文をpromptにしたgreedy 30文字の生成が一致。tokenizerは評価prompt10本と6文の計16本で比べ、Python実装の公式と同じ挙動（語彙にないtokenは `[UNK]`）のBPEと16本すべて一致した。改行を含むprompt 09・10は、Rust実装の公式（改行を黙って落とす）とだけ食い違う。`generate` で「日本の首都は」→「、東京都、神奈川県、埼玉県、千葉県、…」（2026-09-29）
 - [x] 半角スペース・改行の扱いと `<s>` を付けるかを決めた。改行・半角スペースは `JpCharGPT2Tokenizer` で `encode` の前に取り除き、`<s>` は付けない（「作業の決め事」と `pretrained-model-plan.md` の「注意」、2026-09-29）
 - [x] `generate`・`evaluate`・`visualize-attention`・`visualize-hidden-states`・`visualize-embeddings` を `--run-name ku-nlp-gpt2-small-char` で回した。全バッチvalidation loss 1.706350（モデルカードの eval loss 1.597 と桁が合う）。`visualize-hidden-states` は窓1,024で約4分（2026-09-29）
-- [ ] `plan.md` の「5.5 やらない。語彙もサイズも違うので読み込めない」を今回の決定に書き換え、「本から変える決定事項」に `JpCharGPT2` と変換スクリプトを追記する
-- [ ] 観察を `visualization-results.md` の「モデル規模」に記録し、自作の `l12h12-d768-s5000-lr1e-3` と並べる
+- [x] `plan.md` の「5.5 やらない。語彙もサイズも違うので読み込めない」を今回の決定に書き換え、「本から変える決定事項」に `JpCharGPT2`・変換スクリプト・`JpCharGPT2Tokenizer` を追記した。Stage 6を「学習済みモデルの読み込み」にし、付録D・第7章はStage 7の候補に繰り下げた（2026-09-29）
+- [x] 評価（全バッチloss・固定10prompt）を `evaluation-results.md` の「学習済みモデル」に、可視化3種の観察を `visualization-results.md` の「学習済みモデル」に記録した。自作の `l12h12-d768-s5000-lr1e-3` との比較は読みにくくなるので載せない（2026-09-29）
 
 ## 実行して分かったこと
 
@@ -233,7 +233,7 @@ Stage 5（Multi-head Attention）は、4層・128次元で1ヘッド（`l4h1-d12
 - 先頭39,936位置に銀行・旅行は2回、実行・発行は1回しか出ない（validation全体では55・60・58・29回）
 - 先頭39,936位置では、12層モデルのLayer 1の時点で、銀行以外の「行」との類似度が0.59以下に落ちる。12層モデルの「行」は、「行という文字」ではなく「銀行という単語の末尾」を表している。4層モデルのLayer 1は別の熟語の「行」も0.6〜0.7で近く、上位10が「行」で埋まっていたので読めていた
 
-コーパスをvalidation全体657,408位置に広げると、今度は上位10が全部「銀行」になり、単語を認識している以上のことが読めない。そこで近傍を「同じ2文字（銀行の行、55件）」「同じ文字・前が違う（旅行・走行の行、1,132件）」「別の文字（656,221件）」の3列に分けた（`NEIGHBOR_GROUPS`）。12層モデルのLayer 12で、銀行の「行」には、別の熟語の「行」（国内旅行0.63・走行0.57）と預金・融資・金額の末尾（0.60〜0.67）が同じくらいの類似度で並ぶ。「別の文字」は候補が656,221件と他の列の数百倍あり、候補が多いほど上位の値は高く出るので、列どうしの上位の値をそのまま比べない。観察の記録は `visualization-results.md` に「モデル規模」の節を作って行う（未着手）。
+コーパスをvalidation全体657,408位置に広げると、今度は上位10が全部「銀行」になり、単語を認識している以上のことが読めない。そこで近傍を「同じ2文字（銀行の行、55件）」「同じ文字・前が違う（旅行・走行の行、1,132件）」「別の文字（656,221件）」の3列に分けた（`NEIGHBOR_GROUPS`）。12層モデルのLayer 12で、銀行の「行」には、別の熟語の「行」（国内旅行0.63・走行0.57）と預金・融資・金額の末尾（0.60〜0.67）が同じくらいの類似度で並ぶ。「別の文字」は候補が656,221件と他の列の数百倍あり、候補が多いほど上位の値は高く出るので、列どうしの上位の値をそのまま比べない。自作12層の観察は `visualization-results.md` には載せず、学習済みモデルの観察を「学習済みモデル」の節に書いた。
 
 - 全層のベクトルを溜めると13層×657k×768次元で約26GBになるので、窓ごとにforwardして上位だけを残す `search_neighbors` にした。旧方式と同じ39,936位置で比べ、Layer 1以降の上位は全体・分類ごととも一致（`tmp/check_search_neighbors.py`、commitしない）。Layer 0は同じ文字が同じ窓内位置にあるとベクトルが同一になり、同点の並びだけ変わる
 - 実行時間は4層で15秒、12層で3分22秒（CPU）
@@ -262,3 +262,12 @@ Hugging Face上でGPT-2アーキテクチャ（`GPT2LMHeadModel`）の日本語�
 - 改行・半角スペース以外で `<|unk|>` になる文字はvalidation全体で54個
 - `<s>` の有無で生成は変わるが質の優劣はない。「日本の首都は」の次は、なしで「、」0.13・「東」0.09、ありで「東」0.17・「、」0.13
 - `<|unk|>` が文書の境界として学習されている根拠は、`</s> <|unk|>` の次に `<s>` を1.000で予測すること。学習データで常に同じ並びだったtokenは、違う文脈でも確率1.000で同じ続きを出す。「なぜ自信満々で間違えるのか」の手がかりになる
+
+### Stage 6：学習済みモデルの評価と可視化の記録（2026-09-29）
+
+数値と観察は `evaluation-results.md` の「学習済みモデル」と `visualization-results.md` の「学習済みモデル」。記録のために分かった作業上のこと。
+
+- Attentionの「先頭」が均等（0.15）を大きく超えるときは、先頭位置の値ベクトルのノルムと残差ストリームのノルムを見る。学習済みモデルは先頭位置だけ残差ストリームのノルムが約730（他は48〜140）で、先頭を見るヘッドの値ベクトルは他の2〜8%。`tmp/check_attention_sink.py`・`tmp/check_attention_sink2.py`（commitしない）で、位置ごとの先頭重み・値ベクトルとキーのノルム・`<s>` を付けた場合・先頭の文字を替えた場合を測った
+- `visualize-attention` のヒートマップは、先頭に集まるモデルでは先頭列だけが濃くなり残りが読めない。先頭列を除いて色を付け直す表示は未実装
+- hidden stateの「偶然の水準」は学習済みモデルでは層が深いほど上がる（Layer 6で0.70、Layer 12で0.89〜0.94）。後半の層の類似度は偶然の水準との差で読む
+- `hidden_states.json`・`embedding_map.json`・`attention_weights.json` の集計は `tmp/summarize_hidden_states.py`・`tmp/summarize_embedding_map.py`（commitしない）で行い、JSONそのものは読まない。`embedding_map.json` には近傍が入っておらず、HTML側でvectorから計算しているので、記録用の近傍はスクリプトで計算した

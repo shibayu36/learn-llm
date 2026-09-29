@@ -23,10 +23,10 @@
 | 第4章 4.6 GPTモデル | Stage 0で1層版 `OneLayerOneHeadGPT` を実装済み。層を積む `OneHeadGPT` はStage 4、Multi-head化した `GPT` はStage 5 |
 | 第4章 4.7 テキストを生成する | Stage 2。本の `generate_text_simple`（greedy）は作らず、最初から `generate`（`temperature=0` でgreedy）にする |
 | 第5章 ラベルなしデータでの事前学習（5.1 評価、5.2 訓練、5.3 デコーディング戦略、5.4 保存と読み込み） | Stage 2〜3。損失関数・訓練ループ・temperature・保存。5.3.2 top-kは学習後の生成を見て必要なら足す |
-| 第5章 5.5 OpenAIの重みを読み込む | やらない。語彙もサイズも違うので読み込めない |
+| 第5章 5.5 OpenAIの重みを読み込む | Stage 6。OpenAIの英語GPT-2は語彙が違って生成が読めないので、代わりに日本語1文字単位の `ku-nlp/gpt2-small-japanese-char`（12層・12ヘッド・768次元、171GBで事前学習）を `JpCharGPT2` に読み込む。作り方は `pretrained-model-plan.md` |
 | 第6章 分類のためのファインチューニング | やらない（必要になったら再検討） |
-| 第7章 指示に従うためのファインチューニング | Stage 6の候補。Multi-headまで終えてから判断する |
-| 付録D 訓練ループの高度なテクニック（warmup、cosine減衰、勾配クリッピング） | Stage 6の候補 |
+| 第7章 指示に従うためのファインチューニング | Stage 7の候補。起点は `JpCharGPT2` |
+| 付録D 訓練ループの高度なテクニック（warmup、cosine減衰、勾配クリッピング） | Stage 7の候補 |
 | 付録E LoRA | やらない（必要になったら再検討） |
 
 ## 本から変える決定事項
@@ -45,6 +45,11 @@
 - `runs/<run_name>/config.json` には `Config` の値に加えてモデルのクラス名を入れる。Stage 4で `OneHeadGPT` が増えても `generate` がどのクラスを組み立てるか迷わないようにするため
 - 学習は `Config.device`（既定 `"mps"`、Mac GPU）で行い、生成・評価・可視化はCPUで行う。1文字ずつ生成する処理はGPUの方が遅く、UMAPやSVDもCPU前提のため。モデルと `GPTDataset` のID列を最初から `config.device` に置き、`train.py` の関数には `device` を引き回さない。`device` は結果を変えないので `config.json` には保存せず、`load_run` は `map_location="cpu"` で読む。`torch.set_default_device` は `DataLoader(shuffle=True)` の乱数生成器と衝突するので使わない
 - コードのコメントは本の用語（「Causal Attention」「ショートカット接続」「層正規化」など）に合わせる
+- 学習済みモデルは、本の5.5のように `GPTModel` へ直接読み込むのではなく、別クラス `JpCharGPT2` に読み込む。`GPT` は教材の本体でStageごとに変わりうるので、固定して使う学習済みモデルと切り離す。`LayerNorm`・`FeedForward`・`TransformerBlock`・`MultiHeadAttention` は共有し、違いはQ/K/Vのbias（`qkv_bias=True`）と出力ヘッドの重み共有（`out_head.weight = tok_emb.weight`）だけにする
+- Hugging Faceの重みは変換スクリプト `import_hf_gpt2.py` で `runs/ku-nlp-gpt2-small-char/` に `model.pt`・`config.json`・`vocab.json` として保存し、`load_run` には変換の処理を入れない。既存の `generate`・`evaluate`・`visualize-*` がそのまま使えるため。重みの対応表は `pretrained-model-plan.md`
+- ku-nlpのtokenizerは、公式の `vocab.json` を復号して `CharTokenizer` の語彙にする
+- `CharTokenizer` を継承した `JpCharGPT2Tokenizer` で、改行と半角スペースを `encode` の前に取り除く。このモデルは `<|unk|>` を文書の境界として学習していて、文中の改行が `<|unk|>` になると直後の予測が外れるため
+- 文書やpromptの先頭に `<s>` は付けない。改善が0.01程度で、付けると可視化の対象位置がずれるため
 
 ## 実行条件
 
@@ -85,6 +90,7 @@ llms-from-scratch/
   plot.py          学習中のloss曲線の描画
   checkpoint.py    学習結果の保存と読み込み（Stage 3）
   main.py          入口。`train`・`generate`・`evaluate` のサブコマンドを持つ
+  import_hf_gpt2.py  Hugging Faceの日本語GPT-2を runs/ の形式に変換する（Stage 6）
   experiments/     ショートカット接続を外すなど、main.py の学習では表せない実験のスクリプト。必要になったら作る
   runs/            実行結果（model.pt、config.json、vocab.json、metrics.json、loss.png）。commitしない。残したい結果は evaluation-results.md に書く
   evaluation-results.md  評価結果。runごとの条件・loss・生成・観察
@@ -143,12 +149,16 @@ Stage 3以降の `main.py` は次の3つのサブコマンドを持つ。
 - 実験：4層・`d_model=128` で1ヘッドと4ヘッドを比べる。Q/K/Vのパラメータ数がヘッド数で変わらないことを確認する。`OneHeadGPT` の4層runとも並べ、`out_proj` だけの効果も読む
 - 観察：4ヘッドのrunでヘッドごとのAttention weightを同じ入力で並べ、ヘッドによって見る位置が違うか。lossと生成は変わるか
 
-### Stage 6：その後の候補
+### Stage 6：学習済みモデルの読み込み（本 5.5）
 
-Stage 5まで終えてから、次のどれをやるか決める。
+`ku-nlp/gpt2-small-japanese-char` を `JpCharGPT2` に読み込み、`evaluate` と3つの `visualize-*` を自作の `l12h12-d768-s5000-lr1e-3` と同じ条件でかける（2026-09-29に決定。計画は `pretrained-model-plan.md`）。目的は、学習の進んだモデルで可視化ツールの読み方を確かめることと、その後のfine-tuningの起点を持つこと。
+
+### Stage 7：その後の候補
+
+Stage 6まで終えてから、次のどれをやるか決める。
 
 - 付録D：warmup・cosine減衰・勾配クリッピングを入れて学習が安定・改善するか
-- 第7章：小さな日本語の指示データでInstruction Tuning
+- 第7章：小さな日本語の指示データでInstruction Tuning。起点は `JpCharGPT2`
 - `d_model`・`context_length`・更新回数を増やしたときの変化
 
 ## この計画を見直す条件
