@@ -321,3 +321,39 @@ class GPT(nn.Module):
         x = self.final_norm(x)
         logits = self.out_head(x)
         return logits
+
+
+# 公開されている事前学習済みの日本語GPT-2 ku-nlp/gpt2-small-japanese-char を読み込む
+# ためのモデル。1文字を1トークンにするので、自作の CharTokenizer で扱える。
+# 構造は GPT と同じ
+class JpCharGPT2(nn.Module):
+    def __init__(self, vocab_size: int, config: Config) -> None:
+        super().__init__()
+        self.tok_emb = nn.Embedding(vocab_size, config.d_model)
+        self.pos_emb = nn.Embedding(config.context_length, config.d_model)
+        blocks: list[nn.Module] = []
+        for _ in range(config.n_layers):
+            att = MultiHeadAttention(
+                config.d_model,
+                config.d_model,
+                config.context_length,
+                config.n_heads,
+                qkv_bias=True,  # GPT-2のQ/K/Vの重みにはバイアスベクトルがある
+            )
+            blocks.append(TransformerBlock(config, att))
+        self.trf_blocks = nn.Sequential(*blocks)
+        self.final_norm = LayerNorm(config.d_model)
+        self.out_head = nn.Linear(config.d_model, vocab_size, bias=False)
+        # GPT-2は出力ヘッドにトークン埋め込みと同じ行列を使う（重み共有）。
+        # 入口の「トークン → ベクトル」の表を、出口の「ベクトル → 各トークンのlogit」にも使う
+        self.out_head.weight = self.tok_emb.weight
+
+    def forward(self, in_idx: torch.Tensor) -> torch.Tensor:
+        seq_len = in_idx.shape[1]
+        tok_embeds = self.tok_emb(in_idx)
+        pos_embeds = self.pos_emb(torch.arange(seq_len, device=in_idx.device))
+        x = tok_embeds + pos_embeds
+        x = self.trf_blocks(x)
+        x = self.final_norm(x)
+        logits = self.out_head(x)
+        return logits

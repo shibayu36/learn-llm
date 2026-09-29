@@ -11,7 +11,7 @@ Hugging Faceで公開されている日本語1文字単位のGPT-2 smallを、�
 
 決めたこと（理由は `progress.md` の「作業の決め事」）。
 
-- モデルは `GPT` を拡張せず、別クラス `JapaneseCharGPT2` にする
+- モデルは `GPT` を拡張せず、別クラス `JpCharGPT2` にする
 - 重みは変換スクリプトで `runs/` の形式に保存し、以後は既存の `generate`・`evaluate`・`visualize-*` をそのまま使う
 - tokenizerは公式の語彙を復号して `CharTokenizer` の語彙にする
 
@@ -48,9 +48,9 @@ ku-nlp/gpt2-small-japanese-char: https://huggingface.co/ku-nlp/gpt2-small-japane
 
 | 項目 | 自作 `GPT` | ku-nlp GPT-2 | 埋め方 |
 |---|---|---|---|
-| Q/K/Vのbias | なし | あり | `CausalAttention` に `qkv_bias` 引数を足し、`JapaneseCharGPT2` だけTrueにする |
+| Q/K/Vのbias | なし | あり | `CausalAttention` に `qkv_bias` 引数を足し、`JpCharGPT2` だけTrueにする |
 | Q/K/Vの持ち方 | ヘッドごとに別の `nn.Linear` | 1つの `c_attn`（768×2,304）にQ・K・V・全ヘッド分を連結 | 変換時に切り分ける（下記） |
-| 出力ヘッド | `out_head` が独立 | `wte` と同じ行列（weight tying） | `wte` を `tok_emb` と `out_head` の両方に入れる |
+| 出力ヘッド | `out_head` が独立 | `wte` と同じ行列（重み共有） | `JpCharGPT2` で `out_head.weight` に `tok_emb.weight` を代入して共有する |
 | 位置埋め込み | `context_length` 行 | 1,024行 | `context_length=1024` で組む |
 | Linearの重みの向き | `[out, in]` | Conv1D `[in, out]` | 転置する（本の `load_weights_into_gpt` と同じ） |
 
@@ -64,13 +64,13 @@ Attentionのスケーリング（√64で割る）、Pre-LayerNorm、ショー�
 
 確認：既存runの `evaluate` で全バッチvalidation lossが `evaluation-results.md` の値と一致すること。
 
-### 2. `JapaneseCharGPT2`
+### 2. `JpCharGPT2`
 
-`japanese_char_gpt2.py` に `JapaneseCharGPT2(vocab_size, config)` を作る。`GPT` と同じ構造で、`MultiHeadAttention` を `qkv_bias=True` で作るだけが違う。`LayerNorm`・`FeedForward`・`TransformerBlock`・`MultiHeadAttention` は `gpt.py` のものを使う。
+`gpt.py` に `JpCharGPT2(vocab_size, config)` を作る。`GPT` と同じ構造で、違いは `MultiHeadAttention` を `qkv_bias=True` で作ることと、`out_head.weight` に `tok_emb.weight` を代入して重み共有にすることの2点。`LayerNorm`・`FeedForward`・`TransformerBlock`・`MultiHeadAttention` はそのまま使う。
 
 属性名は `GPT` と同じ `tok_emb`・`pos_emb`・`trf_blocks`・`final_norm`・`out_head` にする。`visualize.py` がこの名前と `TransformerBlock`・`MultiHeadAttention` の `isinstance` に依存しているため。
 
-`checkpoint.load_run` に `"JapaneseCharGPT2"` の分岐を足す。
+`checkpoint.load_run` に `"JpCharGPT2"` の分岐を足す。
 
 ### 3. 変換スクリプト `import_hf_gpt2.py`
 
@@ -80,7 +80,7 @@ Attentionのスケーリング（√64で割る）、Pre-LayerNorm、ショー�
 
 1. `huggingface_hub.hf_hub_download` で4ファイルを取得する（`~/.cache/huggingface/` に入る）
 2. HFの `config.json` から `n_layer`・`n_embd`・`n_head`・`n_positions` を読み、`Config` の `n_layers`・`d_model`・`n_heads`・`context_length` に入れる。学習用の項目（`batch_size`・`steps`・`learning_rate` など）は `Config()` の既定のまま入れる。fine-tuningのときに改めて決める
-3. `safetensors.torch.load_file` で重みを読み、下の対応表で `JapaneseCharGPT2` の `state_dict` を組み立てて `load_state_dict(strict=True)` する
+3. `safetensors.torch.load_file` で重みを読み、下の対応表で `JpCharGPT2` の `state_dict` を組み立てて `load_state_dict(strict=True)` する
 4. 語彙を変換して `CharTokenizer` を作る（下記）
 5. `save_run` で保存する
 
@@ -88,7 +88,7 @@ Attentionのスケーリング（√64で割る）、Pre-LayerNorm、ショー�
 
 | HF側 | shape | 自作側 | 処理 |
 |---|---|---|---|
-| `wte.weight` | [6000, D] | `tok_emb.weight`・`out_head.weight` | そのまま。両方に入れる |
+| `wte.weight` | [6000, D] | `tok_emb.weight` | そのまま。`out_head.weight` は同じテンソルなので入れない |
 | `wpe.weight` | [1024, D] | `pos_emb.weight` | そのまま |
 | `h.{i}.ln_1.weight` / `.bias` | [D] | `trf_blocks.{i}.norm1.scale` / `.shift` | そのまま |
 | `h.{i}.attn.c_attn.weight` | [D, 3D] | `trf_blocks.{i}.att.heads.{h}.W_query.weight` など | 列を `[:, :D]`・`[:, D:2D]`・`[:, 2D:]` でQ・K・Vに分け、さらに列を `[:, h*H:(h+1)*H]` でヘッドに分けて転置。[D, H] → [H, D] |
@@ -110,7 +110,7 @@ Attentionのスケーリング（√64で割る）、Pre-LayerNorm、ショー�
 
 ### 4. 一致確認（`tmp/` に置き、commitしない）
 
-- 重み：`uv run --with transformers python tmp/check_japanese_char_gpt2.py`。`GPT2LMHeadModel.from_pretrained` で本物を読み、公式tokenizerでencodeした数文（`data/hidden-state-sentences.json` の6文など）を両方に入れ、logitsの最大絶対差が1e-4未満であること。greedyで30文字生成した結果も一致すること
+- 重み：`uv run --with transformers python tmp/check_jp_char_gpt2.py`。`GPT2LMHeadModel.from_pretrained` で本物を読み、公式tokenizerでencodeした数文（`data/hidden-state-sentences.json` の6文など）を両方に入れ、logitsの最大絶対差が1e-4未満であること。greedyで30文字生成した結果も一致すること
 - tokenizer：評価prompt（`data/evaluation-prompts.json`）とhidden state用の6文について、変換後の `CharTokenizer.encode` が公式の `encode(...).ids` と一致すること
 
 ### 5. 使い方
@@ -131,7 +131,7 @@ uv run main.py visualize-embeddings --run-name ku-nlp-gpt2-small-char
 
 ## fine-tuningへの接続（第7章を始めるときに決める）
 
-- `train.py` の `train_model` はモデルの種類を問わないので、`JapaneseCharGPT2` をそのまま渡せる。`main.py train` はゼロから作る前提なので、学習済みrunを読んで続きを学習する入口（`finetune` サブコマンドなど）は第7章の設計で決める
+- `train.py` の `train_model` はモデルの種類を問わないので、`JpCharGPT2` をそのまま渡せる。`main.py train` はゼロから作る前提なので、学習済みrunを読んで続きを学習する入口（`finetune` サブコマンドなど）は第7章の設計で決める
 - 学習率は事前学習の1e-3より小さくする。本の第7章は5e-5
 - 指示データは短いので学習の窓は256のままでよい。1stepは自作 `l12h12` と同じ約0.84秒（B=16・T=256・MPS）
 - 事前学習ではdropout 0.1が入っていた。fine-tuningで入れるかは、そのとき決める

@@ -19,7 +19,7 @@ Stage 5（Multi-head Attention）は、4層・128次元で1ヘッド（`l4h1-d12
 - hidden stateの「近い文脈」はvalidation全体から探し、「同じ2文字」「同じ文字・前が違う」「別の文字」の3列に分けて出す。先頭4万位置では対象の熟語が1〜2回しか出ず、全体にすると同じ単語だけで上位10が埋まるため
 - hidden stateの「偶然の水準」は「別の文字」の位置だけで取る。全位置で取ると「の」のように数万回出る文字では上位0.1%が同じ文字で埋まり、水準にならないため
 - optimizerは本と同じく `train_model` の外で作って渡す形のままにする。モデルとoptimizerは `.grad` を通して暗黙につながるので、optimizerは必ずそのモデルの `parameters()` で作る。Stage 6でスケジューラやパラメータのグループ分けを入れるときも外で作る
-- 学習済みモデルは `GPT` を拡張せず、別クラス `JapaneseCharGPT2` にする。`GPT` は教材の本体でStageごとに変わりうるので、固定して使う学習済みモデルと切り離す。`LayerNorm`・`FeedForward`・`TransformerBlock` は共有し、違いはQ/K/Vのbiasだけにする
+- 学習済みモデルは `GPT` を拡張せず、別クラス `JpCharGPT2` にする。`GPT` は教材の本体でStageごとに変わりうるので、固定して使う学習済みモデルと切り離す。`LayerNorm`・`FeedForward`・`TransformerBlock` は共有し、違いはQ/K/Vのbiasと出力ヘッドの重み共有だけにする
 - Hugging Faceの重みは変換スクリプトで `runs/` の形式（model.pt・config.json・vocab.json）に保存し、`load_run` には変換の処理を入れない。既存の `generate`・`evaluate`・`visualize-*` がそのまま使えるため
 - ku-nlpのtokenizerは公式の `vocab.json` を復号して `CharTokenizer` の語彙にする。6,000語彙のうち5,992が1文字で、実質的に文字表のため。`</s>`（ID 3）を `<|endoftext|>`、`[UNK]`（ID 0）を `<|unk|>` に付け替え、IDは変えない。語彙にない文字は公式ではバイト片に分かれ、変換後は `<|unk|>` になる点だけが違う。半角スペースは公式でも消えるので、promptでは全角スペースを使う
 
@@ -96,11 +96,11 @@ Stage 5（Multi-head Attention）は、4層・128次元で1ヘッド（`l4h1-d12
 手元で回せる根拠は、同じ形の `l12h12-d768-s5000-lr1e-3` の実績。学習は1step 0.84秒（B=16・T=256・MPS）なので第7章の規模（約1,100件を2周、300step弱）なら数分、hidden stateの近傍探索は3分22秒（CPU）。本の5.5「OpenAIの重みを読み込む」を日本語文字モデルで行うことに相当する。作り方（重みの対応表・語彙の変換・一致確認の方法）は `pretrained-model-plan.md`。
 
 - [x] `CausalAttention`・`MultiHeadAttention` に `qkv_bias` 引数（既定False）を足す。`l4h4-d128-s5000-lr1e-3`（`GPT`）と `l4h1-d128-s5000-lr1e-3`（`OneHeadGPT`）を `evaluate` し直し、全バッチvalidation loss（3.094512・3.067810）と全20出力が変更前の `metrics.json` と一致した（2026-09-29）
-- [ ] `japanese_char_gpt2.py` に `JapaneseCharGPT2(vocab_size, config)` を作る。`GPT` と同じ構造でQ/K/Vにbiasあり。`checkpoint.load_run` に分岐を足す
-- [ ] 変換スクリプト `import_hf_gpt2.py`：`huggingface-hub` で `model.safetensors`・`config.json`・`vocab.json`・`merges.txt` を取得し、`JapaneseCharGPT2` に重みを流し込み、語彙を `CharTokenizer` の形に変換して `runs/ku-nlp-gpt2-small-char/` に `save_run` する。`config.json` の層数・次元・ヘッド数・`context_length` はHF側の `config.json` から取る。依存に `safetensors` を足す
+- [x] `gpt.py` に `JpCharGPT2(vocab_size, config)` を作る。`GPT` と同じ構造でQ/K/Vにbiasあり、出力ヘッドはトークン埋め込みと重み共有。`checkpoint.load_run` に分岐を足す。GPT-2 smallの形（語彙6,000）でパラメータ数が `GPT` より bias分 27,648 多く共有分 4,608,000 少ない 90,450,432 になること、logitsが `final_norm` 後のベクトルと埋め込み表の内積に一致すること、`save_run`→`load_run` の往復でlogitsと共有が保たれることを `tmp/check_jp_char_gpt2.py` で確認した（2026-09-29）
+- [ ] 変換スクリプト `import_hf_gpt2.py`：`huggingface-hub` で `model.safetensors`・`config.json`・`vocab.json`・`merges.txt` を取得し、`JpCharGPT2` に重みを流し込み、語彙を `CharTokenizer` の形に変換して `runs/ku-nlp-gpt2-small-char/` に `save_run` する。`config.json` の層数・次元・ヘッド数・`context_length` はHF側の `config.json` から取る。依存に `safetensors` を足す
 - [ ] 一致確認（`tmp/`、commitしない）：`uv run --with transformers` で本物の `GPT2LMHeadModel` と同じ入力のlogitsが一致すること。変換後の `CharTokenizer` のencodeが、評価promptとhidden state用の文で公式tokenizerと一致すること
 - [ ] `generate`・`evaluate`・`visualize-attention`・`visualize-hidden-states`・`visualize-embeddings` を `--run-name ku-nlp-gpt2-small-char` で回す
-- [ ] `plan.md` の「5.5 やらない。語彙もサイズも違うので読み込めない」を今回の決定に書き換え、「本から変える決定事項」に `JapaneseCharGPT2` と変換スクリプトを追記する
+- [ ] `plan.md` の「5.5 やらない。語彙もサイズも違うので読み込めない」を今回の決定に書き換え、「本から変える決定事項」に `JpCharGPT2` と変換スクリプトを追記する
 - [ ] 観察を `visualization-results.md` の「モデル規模」に記録し、自作の `l12h12-d768-s5000-lr1e-3` と並べる
 
 ## 実行して分かったこと
