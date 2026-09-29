@@ -69,3 +69,16 @@ class CharTokenizer:
     def load(cls, path: Path) -> "CharTokenizer":
         vocab = json.loads(path.read_text(encoding="utf-8"))
         return cls(vocab)
+
+
+# 学習済みの日本語GPT-2用。encodeの前に改行と半角スペースを取り除く
+class JpCharGPT2Tokenizer(CharTokenizer):
+    # どちらも語彙になく <|unk|> になるが、このモデルは <|unk|> を文書の境界として学習している
+    IGNORED_CHARS = ["\n", " "]
+
+    def encode(self, text: str) -> list[int]:
+        kept = ""
+        for char in text:
+            if char not in self.IGNORED_CHARS:
+                kept += char
+        return super().encode(kept)

@@ -22,7 +22,9 @@ Stage 5（Multi-head Attention）は、4層・128次元で1ヘッド（`l4h1-d12
 - 学習済みモデルは `GPT` を拡張せず、別クラス `JpCharGPT2` にする。`GPT` は教材の本体でStageごとに変わりうるので、固定して使う学習済みモデルと切り離す。`LayerNorm`・`FeedForward`・`TransformerBlock` は共有し、違いはQ/K/Vのbiasと出力ヘッドの重み共有だけにする
 - Hugging Faceの重みは変換スクリプトで `runs/` の形式（model.pt・config.json・vocab.json）に保存し、`load_run` には変換の処理を入れない。既存の `generate`・`evaluate`・`visualize-*` がそのまま使えるため
 - Causal maskのbufferは `persistent=False` にして `model.pt` に保存しない。`context_length` から作り直せる固定の表で、ヘッドごとに1つ持つので12層12ヘッド・窓1,024では144個・604MBになるため
-- ku-nlpのtokenizerは公式の `vocab.json` を復号して `CharTokenizer` の語彙にする。6,000語彙のうち5,992が1文字で、実質的に文字表のため。`</s>`（ID 3）を `<|endoftext|>`、`[UNK]`（ID 0）を `<|unk|>` に付け替え、IDは変えない。公式（transformers 4.xのPython実装 `GPT2Tokenizer`）との差は、語彙にない文字が公式ではバイト片に分かれ、変換後は `<|unk|>` になる点だけ。半角スペースと改行は公式でも `[UNK]` になり、変換後と一致する。Rust実装の公式（`GPT2TokenizerFast`、transformers 5系）は語彙にないtokenを黙って落とすので、半角スペースと改行が消える。promptでは語彙にある全角スペースを使う
+- ku-nlpのtokenizerは公式の `vocab.json` を復号して `CharTokenizer` の語彙にする。6,000語彙のうち5,992が1文字で、実質的に文字表のため。`</s>`（ID 3）を `<|endoftext|>`、`[UNK]`（ID 0）を `<|unk|>` に付け替え、IDは変えない。公式（transformers 4.xのPython実装 `GPT2Tokenizer`）との差は、語彙にない文字が公式ではバイト片に分かれ、変換後は `<|unk|>` になる点だけ。半角スペースと改行は公式でも `[UNK]` になり、変換後と一致する。Rust実装の公式（`GPT2TokenizerFast`、transformers 5系）は語彙にないtokenを黙って落とすので、半角スペースと改行が消える。promptでは語彙にある全角スペースを使う。改行と半角スペースの扱いは次項
+- ku-nlpのrunでは、改行と半角スペースを `encode` の前に取り除く `JpCharGPT2Tokenizer` を使い、`load_run` が `config.json` の `"model"` で選ぶ。このモデルは `<|unk|>` を文書の境界として覚えていて、文中の改行を `<|unk|>` にするとvalidation lossの4割がその周辺から出るため
+- ku-nlpのrunでは、promptや文書の先頭に `<s>` を付けない。lossの改善が0.01程度で、付けると可視化の対象位置がずれるため
 
 ## Stage 0：部品の実装
 
@@ -100,7 +102,8 @@ Stage 5（Multi-head Attention）は、4層・128次元で1ヘッド（`l4h1-d12
 - [x] `gpt.py` に `JpCharGPT2(vocab_size, config)` を作る。`GPT` と同じ構造でQ/K/Vにbiasあり、出力ヘッドはトークン埋め込みと重み共有。`checkpoint.load_run` に分岐を足す。GPT-2 smallの形（語彙6,000）でパラメータ数が `GPT` より bias分 27,648 多く共有分 4,608,000 少ない 90,450,432 になること、logitsが `final_norm` 後のベクトルと埋め込み表の内積に一致すること、`save_run`→`load_run` の往復でlogitsと共有が保たれることを `tmp/check_jp_char_gpt2.py` で確認した（2026-09-29）
 - [x] 変換スクリプト `import_hf_gpt2.py`：`huggingface-hub` で `model.safetensors`・`config.json`・`vocab.json`・`merges.txt` を取得し、`JpCharGPT2` に重みを流し込み、語彙を `CharTokenizer` の形に変換して `runs/ku-nlp-gpt2-small-char/` に `save_run` する。`config.json` の層数・次元・ヘッド数・`context_length` はHF側の `config.json` から取る。依存に `safetensors` を足す。先に `CausalAttention` のmaskを `persistent=False` にして `model.pt` から外し（966MB → 362MB）、既存9runの `model.pt` からもmaskキーを除いて `load_run` とgreedy生成が変わらないことを確認した。変換後のパラメータ数は90,450,432（2026-09-29）
 - [x] 一致確認（`tmp/check_import_hf_gpt2.py`、commitしない）：本物の `GPT2LMHeadModel` とhidden state用6文のlogitsの最大絶対差 2.3e-05。「日本の首都は」と6文の先頭文をpromptにしたgreedy 30文字の生成が一致。tokenizerは評価prompt10本と6文の計16本で比べ、Python実装の公式と同じ挙動（語彙にないtokenは `[UNK]`）のBPEと16本すべて一致した。改行を含むprompt 09・10は、Rust実装の公式（改行を黙って落とす）とだけ食い違う。`generate` で「日本の首都は」→「、東京都、神奈川県、埼玉県、千葉県、…」（2026-09-29）
-- [ ] `generate`・`evaluate`・`visualize-attention`・`visualize-hidden-states`・`visualize-embeddings` を `--run-name ku-nlp-gpt2-small-char` で回す。その前に、半角スペース・改行（変換後は `<|unk|>`）の扱いと、promptや文書の先頭に `<s>` を付けるかを決める（`pretrained-model-plan.md` の「注意」）
+- [x] 半角スペース・改行の扱いと `<s>` を付けるかを決めた。改行・半角スペースは `JpCharGPT2Tokenizer` で `encode` の前に取り除き、`<s>` は付けない（「作業の決め事」と `pretrained-model-plan.md` の「注意」、2026-09-29）
+- [x] `generate`・`evaluate`・`visualize-attention`・`visualize-hidden-states`・`visualize-embeddings` を `--run-name ku-nlp-gpt2-small-char` で回した。全バッチvalidation loss 1.706350（モデルカードの eval loss 1.597 と桁が合う）。`visualize-hidden-states` は窓1,024で約4分（2026-09-29）
 - [ ] `plan.md` の「5.5 やらない。語彙もサイズも違うので読み込めない」を今回の決定に書き換え、「本から変える決定事項」に `JpCharGPT2` と変換スクリプトを追記する
 - [ ] 観察を `visualization-results.md` の「モデル規模」に記録し、自作の `l12h12-d768-s5000-lr1e-3` と並べる
 
@@ -244,3 +247,18 @@ Hugging Face上でGPT-2アーキテクチャ（`GPT2LMHeadModel`）の日本語�
 - 自作 `GPT` との差は4点。Q/K/Vにbiasがある、Q/K/Vが1つの `c_attn`（768×2,304）に全ヘッド分連結されている、出力ヘッドがトークン埋め込みと同じ行列、位置埋め込みが1,024行。GELU・LayerNorm・Pre-LayerNorm・ショートカット接続の順序は同じ。dropout（0.1）は推論では無効
 - tokenizerは公式の `vocab.json`・`merges.txt` が付属する。「日本の首都は東京です。」は11文字→11token、「鬱蒼とした森で薔薇が咲く」も12文字→12token。`vocab.json` のキーはUTF-8のバイトを表示用の文字に置き換えた形（「日」は `æĹ¥`）で、文字に戻す復号が要る。半角スペースはtokenにならず消える（モデルカードの「全角スペースを使う」注意はこのため）
 - `config.json` の `eos_token_id` は2だが、`vocab.json` ではID 2が `<s>`、3が `</s>`。文書区切りには `</s>` を使い、生成結果で確かめる
+
+### Stage 6：改行・半角スペースは除き、`<s>` は付けない（2026-09-29）
+
+除くとlossは2.527から1.635に下がる。`<s>` は同じ予測位置で比べると改善が0.01程度で、付けると可視化の対象位置がずれるので付けない。validation先頭200文書を文書ごとに単独で測った（`tmp/check_bos_unk.py`・`tmp/check_bos_same_positions.py`、commitしない）。
+
+| 改行・半角スペース | `<s>` なし | `<s>` あり |
+|---|---:|---:|
+| 残す（`<|unk|>` になる） | 2.5265 | 2.5352 |
+| 除く | 1.6354 | 1.6346 |
+
+- 表の `<s>` ありは `<s>` から1文字目を当てる位置（平均loss 6.6）も含む。同じ予測位置だけで比べると、除く条件で `<s>` ありは0.009低い（188/200文書で改善）
+- 残す条件では、正解が `<|unk|>` の位置（tokenの2.3%）が平均15.4、その直後（2.2%）が平均29.9で、この2つでlossの40%を占める。残りの位置は平均1.589
+- 改行・半角スペース以外で `<|unk|>` になる文字はvalidation全体で54個
+- `<s>` の有無で生成は変わるが質の優劣はない。「日本の首都は」の次は、なしで「、」0.13・「東」0.09、ありで「東」0.17・「、」0.13
+- `<|unk|>` が文書の境界として学習されている根拠は、`</s> <|unk|>` の次に `<s>` を1.000で予測すること。学習データで常に同じ並びだったtokenは、違う文脈でも確率1.000で同じ続きを出す。「なぜ自信満々で間違えるのか」の手がかりになる

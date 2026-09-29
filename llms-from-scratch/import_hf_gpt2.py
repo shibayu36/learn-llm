@@ -10,10 +10,10 @@ from tokenizers import ByteLevelBPETokenizer
 from checkpoint import save_run
 from config import Config
 from gpt import JpCharGPT2
-from tokenizer import END_OF_TEXT, UNKNOWN, CharTokenizer
+from tokenizer import END_OF_TEXT, UNKNOWN, JpCharGPT2Tokenizer
 
 # 本の 5.5「OpenAI から事前学習済みの重みを読み込む」に相当する。Hugging Faceで公開されている
-# GPT-2の重みと語彙を、自作の JpCharGPT2 と CharTokenizer の形に変換して runs/ に保存する。
+# GPT-2の重みと語彙を、自作の JpCharGPT2 と JpCharGPT2Tokenizer の形に変換して runs/ に保存する。
 # 保存したrunは、自作モデルと同じ generate・evaluate・visualize-* で使える
 
 DEFAULT_MODEL_ID = "ku-nlp/gpt2-small-japanese-char"
@@ -144,7 +144,7 @@ def main() -> None:
 
     model = JpCharGPT2(len(vocab), config)
     model.load_state_dict(state, strict=True)
-    tokenizer = CharTokenizer(vocab)
+    tokenizer = JpCharGPT2Tokenizer(vocab)
 
     run_dir = RUNS_DIR / args.run_name
     save_run(run_dir, model, config, tokenizer)

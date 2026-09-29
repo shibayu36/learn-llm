@@ -104,16 +104,18 @@ Attentionのスケーリング（√64で割る）、Pre-LayerNorm、ショー�
 - `tokenizers.ByteLevelBPETokenizer(vocab.json, merges.txt)` を作り、ID 0〜5,999を1つずつ `decode([id])` して文字列に戻す。`vocab.json` のキーはUTF-8のバイトを表示用の文字に置き換えた形（「日」は `æĹ¥`）なので、キーをそのまま使わない
 - ID 0 `[UNK]` を `<|unk|>`、ID 3 `</s>` を `<|endoftext|>` に付け替える。`CharTokenizer` がこの名前で特殊tokenを探すため。IDは変えない。ID 1 `[PAD]`・ID 2 `<s>` はそのまま残す（複数文字なのでencodeで当たらない）
 - バイト片のtokenは復号すると `�` になる。同じ文字列がIDに重複するが、encodeで当たることはないので気にしない
-- `CharTokenizer(vocab)` を作り、`save_run` で `vocab.json`（リスト形式）として保存する
+- `JpCharGPT2Tokenizer(vocab)` を作り、`save_run` で `vocab.json`（リスト形式）として保存する
 
 公式tokenizerとの差は、語彙にない文字がPython実装の公式（transformers 4.xの `GPT2Tokenizer`）ではバイト片に分かれ、変換後は `<|unk|>` になる点だけ。半角スペースと改行はバイト片に分けても語彙になく、Python実装の公式でも `[UNK]` になるので、変換後の `<|unk|>` と一致する。モデルカードが全角スペースを使うよう注意しているのはこのため。タブと全角スペースは語彙にあるので、どちらでも残る。
 
 Rust実装の公式（`GPT2TokenizerFast`、transformers 5系の `GPT2Tokenizer`）は、BPEの `unk_token` が設定されず、語彙にないtokenを黙って落とすので、半角スペースと改行が消える。事前学習で使われたのはPython実装と見られる（下の「注意」の `</s> [UNK] <s>` の観察）。一致確認はPython実装相当（`unk_token` を `[UNK]` にした `tokenizers` のBPE）と比べる。
 
+このrunのtokenizerは `CharTokenizer` を継承した `JpCharGPT2Tokenizer` にし、`encode` の前に改行と半角スペースを取り除く。`load_run` は `config.json` の `"model"` が `JpCharGPT2` のときだけこのクラスで読む。理由は下の「注意」。
+
 ### 4. 一致確認（`tmp/` に置き、commitしない）
 
 - 重み：`uv run --with transformers python tmp/check_jp_char_gpt2.py`。`GPT2LMHeadModel.from_pretrained` で本物を読み、公式tokenizerでencodeした数文（`data/hidden-state-sentences.json` の6文など）を両方に入れ、logitsの最大絶対差が1e-4未満であること。greedyで30文字生成した結果も一致すること
-- tokenizer：評価prompt（`data/evaluation-prompts.json`）とhidden state用の6文について、変換後の `CharTokenizer.encode` が公式の `encode(...).ids` と一致すること
+- tokenizer：評価prompt（`data/evaluation-prompts.json`）とhidden state用の6文について、変換後の語彙で作った `CharTokenizer.encode`（改行・半角スペースを取り除く前）が公式の `encode(...).ids` と一致すること
 
 ### 5. 使い方
 
@@ -128,9 +130,9 @@ uv run main.py visualize-embeddings --run-name ku-nlp-gpt2-small-char
 
 注意。
 
-- `evaluate` は文書を `<|endoftext|>`（`</s>`）で区切って窓1,024で測る。事前学習の文書境界は `</s> [UNK] <s>` だったと見られ（次項）、`evaluate` の区切り方とは違うので、validation lossは自作runと同じ条件の参考値として読む。語彙が違う（6,000と4,052）ので自作runのlossとは直接比べない
-- `evaluate` を回す前に、このrunだけ半角スペース・改行を除いてencodeするか、そのまま測って参考値と割り切るかを決める。そのまま測ると、改行の直後と文書の先頭文字の位置でlossが大きく出るため。validationテキストには改行10,003個・半角スペース5,647個（全文字の2.4%）があり、評価prompt 09・10にも改行がある。変換後のtokenizerでは、改行と半角スペースはどちらも `<|unk|>` になる。これは事前学習時のtokenizerと同じだが、事前学習では改行は文書の境界にしか現れなかったと見られる。変換後のモデルで確かめると、`<|endoftext|>`（`</s>`）の次は `<|unk|>` を確率1.000で、`<|unk|>` の次は `<s>` を確率1.000で予測する。文中の改行由来の `<|unk|>` の直後も `<s>` が1.000になる。1行1文書のテキストをPython実装でtokenizeすると行間の改行が `[UNK]` になり、`</s> [UNK] <s>` が文書境界の決まった並びになる。つまり `<|unk|>` は「文書の境界」を意味するtokenとして学習されていて、このモデルは文中の改行を知らない。`evaluate` では `</s>` の直後に文書の先頭文字が来るので、そこでも予測が外れる
-- モデルカードの使用例はpromptを `<s>` で始めている（`"<s>昨日私は京都で"`）。事前学習の文書はすべて `<s>` から始まるので、`generate`・`evaluate` でpromptや文書の先頭に `<s>`（ID 2）を付けるかを、`evaluate` を回す前に上の改行の扱いと一緒に決める。`CharTokenizer` は `<s>` を1tokenとしてencodeできないので、付けるならencode後のID列の先頭に足す形になる
+- `evaluate` は文書を `<|endoftext|>`（`</s>`）で区切って窓1,024で測る。事前学習の文書境界は `</s> [UNK] <s>` だったので、1,000文書の先頭で予測が外れるが、平均への影響は0.01程度なのでそのままにする。語彙が違う（6,000と4,052）ので自作runのlossとは直接比べない
+- 半角スペース・改行は、このrunだけ `encode` の前に取り除く（2026-09-29に決定）。このモデルは `<|unk|>` を文書の境界として学習していて、文中の改行を `<|unk|>` にすると直後の予測が外れ、validation lossが2.53から1.64に変わるため。根拠と計測は `progress.md` の「改行・半角スペースは除き、`<s>` は付けない」。評価prompt 09・10も改行を除いてモデルに入るが、`metrics.json` の `prompt` には原文が残る
+- promptや文書の先頭に `<s>`（ID 2）は付けない（2026-09-29に決定）。lossの改善は0.01程度で、付けると `visualize-*` の対象位置がずれて自作runと比べにくくなるため。第7章で指示データの形式を決めるときに改めて判断する
 - モデルカードの eval loss は 1.597（各コーパスから5,000文書ずつ）。`evaluate` の値と比べるときの目安にする。データも区切り方も違うので、桁が合っているかを見る程度
 - `visualize-hidden-states` の近傍探索は `config.context_length`=1,024の窓で回る。同じ12層で窓256のときの3分22秒（CPU）より長くかかる見込み。待てなければ窓幅を引数で256にする
 
