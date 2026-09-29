@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>図解ファインチューニング入門｜重みの更新と分類・インストラクションチューニング</title>
+<style>
+:root{--bg:#f6f5ef;--paper:#fff;--ink:#25332e;--muted:#596a62;--line:#d9e1d9;--green:#176c53;--soft:#e4f2e9;--orange:#9c481e;--orange-soft:#fcebdd;--blue:#365f8e;--blue-soft:#edf3fa;--mono:ui-monospace,SFMono-Regular,Consolas,monospace;color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.85 -apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif}
+main{max-width:1100px;margin:auto;padding:48px 28px 64px}
+header{padding:8px 0 32px}
+.eyebrow,.step{font-size:13px;font-weight:700;letter-spacing:.08em;color:var(--green)}
+h1{font-size:clamp(32px,5vw,52px);line-height:1.4;margin:12px 0 20px;letter-spacing:.02em}
+h2{font-size:clamp(24px,3vw,31px);line-height:1.5;margin:8px 0 12px}
+h3{font-size:20px;line-height:1.6;margin:0 0 12px}
+p{margin:8px 0 18px}
+.lead{font-size:20px;max-width:840px}
+.lead strong{background:linear-gradient(transparent 65%,#cee6d6 65%)}
+section{padding:30px;background:var(--paper);border:1px solid var(--line);border-radius:20px;margin-bottom:26px;min-width:0}
+nav{display:flex;gap:8px 22px;flex-wrap:wrap;margin-top:22px;font-size:14px}
+a{color:var(--green);text-underline-offset:4px}
+.caption{font-size:13px;color:var(--muted);margin:10px 0 0}
+.small{font-size:14px;color:var(--muted)}
+.takeaway{font-size:18px;font-weight:650;margin:22px 0 0}
+.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px;margin:24px 0}
+.panel{padding:22px;background:#f4f6f2;border-radius:12px;min-width:0}
+.panel p:last-child{margin-bottom:0}
+.warm{background:var(--orange-soft)}
+.cool{background:var(--soft)}
+.blue{background:var(--blue-soft)}
+.tag{display:inline-block;font-size:13px;font-weight:650;line-height:1.6;padding:3px 8px;border-radius:5px;background:#edf0eb;color:var(--muted)}
+.tag.weight{background:var(--orange-soft);color:var(--orange)}
+.tag.value{background:var(--soft);color:var(--green)}
+.tag.train{background:var(--orange);color:white}
+.flow{display:flex;align-items:center;justify-content:center;gap:12px;margin:22px 0}
+.flow>*{min-width:0}
+.node{padding:18px 16px;background:#f4f6f2;border:1px solid var(--line);border-radius:10px;text-align:center;flex:1}
+.node strong{display:block;font-size:18px}
+.node.weight{background:var(--orange-soft);border-color:#e4b495}
+.node.value{background:var(--soft);border-color:#a4c9b4}
+.arrow{color:var(--muted);font-size:25px;flex:0 0 auto;text-align:center;line-height:1.4}
+.mini-flow{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;margin:16px 0}
+.matrix{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin:12px auto;max-width:245px;font:18px/1.6 var(--mono);font-variant-numeric:tabular-nums}
+.matrix span{padding:8px 4px;text-align:center;border-radius:5px;background:var(--orange-soft);color:var(--orange)}
+.matrix.values span{background:var(--soft);color:var(--green)}
+.matrix.frozen span{background:#e9ede8;color:#596a62}
+.matrix .different{box-shadow:inset 0 -3px var(--orange)}
+.vector{display:flex;gap:7px;justify-content:center;margin:14px 0;font:20px/1.7 var(--mono)}
+.vector span{background:var(--soft);color:var(--green);border-radius:5px;padding:8px 16px}
+.legend{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;margin:20px 0 0}
+.legend span{display:inline-flex;align-items:center;gap:7px}
+.swatch{display:inline-block;width:14px;height:14px;border-radius:3px;background:var(--orange-soft);border:1px solid var(--orange)}
+.swatch.value{background:var(--soft);border-color:var(--green)}
+.loop{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;list-style:none;padding:0;margin:24px 0 10px}
+.loop li{padding:18px 14px;border-radius:10px;background:#f4f6f2;border-top:4px solid #a5b7ad}
+.loop li:last-child{background:var(--orange-soft);border-color:var(--orange)}
+.loop b{display:block;font-size:18px;margin:7px 0}
+.loop .number{font:22px var(--mono);color:var(--green)}
+.loop p{font-size:14px;margin:0}
+.return{border:1px dashed var(--orange);border-top:0;border-radius:0 0 10px 10px;padding:8px;text-align:center;color:var(--orange);font-size:14px;margin:0 22px 22px}
+.equation{font:clamp(16px,2.2vw,23px)/1.7 var(--mono);padding:18px;background:var(--orange-soft);border-radius:10px;text-align:center;overflow-wrap:anywhere}
+.mail{padding:18px 22px;background:var(--blue-soft);border-left:4px solid var(--blue);border-radius:0 10px 10px 0;margin:22px 0}
+.mail small{display:block;color:var(--blue);font-size:13px;margin-bottom:5px}
+.head-row{display:grid;grid-template-columns:145px 1fr 30px 1fr;gap:12px;align-items:center;margin:14px 0}
+.head-row .node{padding:15px 12px}
+.head-row .name{font-size:14px;font-weight:650}
+.score-row{display:grid;grid-template-columns:90px 1fr 55px;gap:10px;align-items:center;font-size:14px;margin:13px 0;font-variant-numeric:tabular-nums}
+.track{height:18px;background:#e5ebe5;border-radius:4px;overflow:hidden}
+.fill{height:100%;background:var(--green);width:0;transition:width .25s ease}
+.fill.neutral{background:#8a9e91}
+.score-row output{text-align:right;font-weight:650}
+.label-result{padding:12px 16px;background:var(--soft);border-radius:8px;text-align:center;margin-top:15px}
+.layers{max-width:640px;margin:22px auto;display:grid;gap:8px}
+.layer{padding:12px 16px;border-radius:8px;background:#edf0eb;display:flex;justify-content:space-between;gap:15px;align-items:center}
+.layer.trainable{background:var(--orange-soft)}
+.layer span:first-child{font-weight:600}
+.layer small{font-size:13px;color:var(--muted)}
+.layer.trainable small{color:var(--orange)}
+.down{text-align:center;font-size:22px;line-height:1;color:var(--muted)}
+.scope-title{margin-top:32px}
+.scope-card h4{font-size:18px;line-height:1.6;margin:0 0 12px}
+.scope-path{display:grid;gap:8px;margin:18px 0}
+.scope-path .node strong{font-size:17px}
+.source-url{overflow-wrap:anywhere}
+.book-note{padding:18px 20px;border-left:4px solid var(--green);background:#f4f7f2;margin-top:24px}
+.book-note p{margin:0}
+.controls{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:22px 0 14px}
+button{font:inherit;border:1px solid #a9beb0;background:var(--paper);color:var(--ink);border-radius:8px;padding:10px 15px;min-height:44px;cursor:pointer}
+button:hover{background:var(--soft)}
+button.primary{background:var(--green);color:#fff;border-color:var(--green)}
+button:disabled{opacity:.45;cursor:default}
+:focus-visible{outline:3px solid var(--blue);outline-offset:4px}
+.mode{display:flex;gap:9px;align-items:center;font-size:15px;margin:12px 0 18px;min-height:44px;cursor:pointer}
+.mode input{width:20px;height:20px;accent-color:var(--green);flex:0 0 auto}
+.step-count{font-size:14px;font-variant-numeric:tabular-nums;margin-left:auto}
+.experiment{display:grid;grid-template-columns:1fr 28px 1fr 28px 1fr;gap:10px;align-items:start;margin:22px 0}
+.experiment .arrow{padding-top:90px}
+.experiment .panel{padding:18px 14px;text-align:center}
+.experiment h3{font-size:17px;margin:8px 0}
+.experiment .matrix{font-size:17px}
+.metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:16px 0}
+.metric{padding:14px;border-top:1px solid var(--line);font-size:13px}
+.metric strong{display:block;font:23px/1.8 var(--mono);color:var(--green)}
+.status{padding:16px 18px;background:var(--soft);border-radius:10px;min-height:3.6em;margin-top:16px}
+.comparison{width:100%;border-collapse:collapse;table-layout:fixed;margin:20px 0;font-size:14px;font-variant-numeric:tabular-nums}
+.comparison caption{text-align:left;font-size:13px;color:var(--muted);margin-bottom:8px}
+.comparison th,.comparison td{padding:12px 9px;border-bottom:1px solid var(--line);text-align:left;overflow-wrap:anywhere}
+.comparison thead{background:#f4f6f2}
+details{margin:20px 0 0;font-size:14px}
+summary{cursor:pointer;min-height:44px;padding:8px 0;font-weight:600}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;tab-size:4;background:#1e1e1e;color:#d4d4d4;padding:18px;border-radius:10px;font:15px/1.7 var(--mono)}
+.code-keyword{color:#c586c0}.code-fn{color:#dcdcaa}.code-number{color:#b5cea8}.code-string{color:#ce9178}
+.training-pair{display:grid;grid-template-columns:1fr 34px 1fr;gap:16px;align-items:center;margin:22px 0}
+.training-pair .panel{height:100%}
+.training-pair .panel p{font-size:16px}
+.tokens{display:flex;flex-wrap:wrap;gap:6px;margin:15px 0;align-items:center}
+.token{border:1px solid #a4c9b4;background:var(--soft);color:var(--green);padding:5px 10px;border-radius:5px;white-space:nowrap}
+.token.target{background:var(--green);color:white;border-color:var(--green);font-weight:600}
+.token.context{background:#edf0eb;color:var(--muted);border-color:var(--line)}
+.teacher-row{display:grid;grid-template-columns:1fr 30px 90px;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.teacher-row .tokens{margin:0}
+.teacher-row .arrow{font-size:21px}
+.teacher-row .token.target{text-align:center}
+.teacher-labels{font-size:13px;color:var(--muted);display:flex;justify-content:space-between;margin:18px 0 6px}
+.source-list{padding-left:20px;font-size:14px;color:var(--muted)}
+footer{padding:10px 5px 0;color:var(--muted);font-size:13px}
+footer h2{font-size:19px;color:var(--ink)}
+footer p{margin-bottom:10px}
+@media(max-width:760px){main{padding:28px 16px 42px}section{padding:24px 20px}.lead{font-size:18px}.two{gap:16px}.head-row{grid-template-columns:105px 1fr 24px 1fr;gap:8px}.head-row .node strong{font-size:16px}.loop{grid-template-columns:repeat(2,minmax(0,1fr))}.experiment{grid-template-columns:1fr;gap:6px}.experiment .arrow{padding:0;transform:rotate(90deg);line-height:1}.experiment .panel{padding:18px}.experiment .matrix{max-width:280px}.experiment .score-row{text-align:left}.metrics{gap:5px}.metric{padding:10px 5px}.metric strong{font-size:20px}}
+@media(max-width:580px){main{padding:22px 12px 35px}section{padding:22px 16px;border-radius:15px}h1{font-size:33px}.two,.training-pair{grid-template-columns:1fr;gap:12px}.training-pair>.arrow{transform:rotate(90deg)}.flow{flex-direction:column;gap:8px}.flow .node{width:100%}.flow>.arrow{transform:rotate(90deg)}.panel{padding:18px}.head-row{grid-template-columns:1fr 24px 1fr}.head-row .name{grid-column:1/-1}.head-row .node{padding:12px 8px}.head-row .node strong{font-size:16px}.layer{align-items:flex-start;gap:8px;font-size:14px}.layer small{max-width:100px;text-align:right}.step-count{width:100%;margin:2px 0}.metrics{grid-template-columns:1fr}.metric{display:flex;justify-content:space-between;align-items:center;gap:12px}.metric strong{font-size:20px}.teacher-row{grid-template-columns:1fr 20px 74px;gap:6px;font-size:14px}.teacher-row .token{padding:4px 6px}.comparison{font-size:13px}.comparison th,.comparison td{padding:10px 5px}.equation{font-size:16px}.loop li{padding:14px 12px}.loop b{font-size:17px}.score-row{grid-template-columns:80px 1fr 51px;gap:7px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+@media print{body{background:white}main{max-width:none;padding:0}section{break-inside:avoid;border-radius:0}nav,.controls,.mode{display:none}details{display:block}}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div class="eyebrow">重みの更新から、分類・インストラクションチューニングまで</div>
+  <h1>図解ファインチューニング入門</h1>
+  <p class="lead">ファインチューニングは、学習済みモデルに追加の例題を与え、<strong>望ましい答えを出すように重みを調整すること</strong>です。重みが変わると、同じ入力から計算される途中の値や予測確率も変わります。</p>
+  <nav aria-label="解説の順番"><a href="#inside">① 重みと内部表現</a><a href="#learning">② 学習の1周</a><a href="#classification">③ 分類</a><a href="#experiment">④ 数値を動かす</a><a href="#instruction">⑤ インストラクション</a></nav>
+</header>
+
+<section id="inside" aria-labelledby="inside-title">
+  <div class="step">01 / 何が保存され、何が計算される？</div>
+  <h2 id="inside-title">「重み」と「内部表現」は別のもの。</h2>
+  <p>モデルの中には、学習で決まる数値が大量にあります。これが<strong>重み</strong>です。その数値を使って入力を計算した結果が、<strong>内部表現</strong>です。</p>
+  <div class="flow" role="img" aria-label="入力を、保存された重みで計算すると、途中の値である内部表現が得られ、予測につながる">
+    <div class="node"><span class="small">今回の入力</span><strong>メール本文</strong></div>
+    <div class="arrow" aria-hidden="true">→</div>
+    <div class="node weight"><span class="tag weight">保存する数値</span><strong>重みを使った計算</strong><span class="small">かけ算・足し算など</span></div>
+    <div class="arrow" aria-hidden="true">→</div>
+    <div class="node value"><span class="tag value">今回の計算結果</span><strong>内部表現</strong><span class="small">文脈を反映した数値の並び</span></div>
+    <div class="arrow" aria-hidden="true">→</div>
+    <div class="node"><strong>予測</strong><span class="small">答え候補の確率</span></div>
+  </div>
+  <div class="two">
+    <div class="panel warm">
+      <h3>重み：計算の設定</h3>
+      <div class="matrix" role="img" aria-label="重みの例、0.8、マイナス0.2、0.2、0.6"><span>0.80</span><span>−0.20</span><span>0.20</span><span>0.60</span></div>
+      <p>どの情報を、どの強さで組み合わせるかを決めます。学習後にモデルを保存すると、この設定が残ります。</p>
+    </div>
+    <div class="panel cool">
+      <h3>内部表現：計算の途中の値</h3>
+      <div class="vector" role="img" aria-label="内部表現の例、0.7、0.5"><span>0.70</span><span>0.50</span></div>
+      <p>同じ重みでも、入力が変われば違う値になります。追加学習では、この値を作る重みも変えられます。</p>
+    </div>
+  </div>
+  <p class="caption">数値は後半の小さな模型のものです。実際のGPTには多数の層があり、層ごと・トークンごとに内部表現があります。各数値に「怪しさ」のような人間が読める意味が1対1でついているわけではありません。</p>
+  <div class="two">
+    <div class="panel"><span class="tag">推論：モデルを使うとき</span><h3>入力が変わる → 途中の値が変わる</h3><p>プロンプトに指示や例を追加すると、計算結果が変わります。通常の推論では重みを更新しません。</p></div>
+    <div class="panel warm"><span class="tag weight">学習：モデルを調整するとき</span><h3>重みが変わる → 次の計算が変わる</h3><p>正解に近づくように重みを更新します。調整を保存すれば、その後の入力にも新しい重みを使います。</p></div>
+  </div>
+</section>
+
+<section id="learning" aria-labelledby="learning-title">
+  <div class="step">02 / ファインチューニングに共通する仕組み</div>
+  <h2 id="learning-title">予測して、ズレを測り、重みを少し動かす。</h2>
+  <p>出発点は、すでに文章のパターンを学んだモデルです。その重みを引き継ぎ、目的に合ったデータで追加学習します。</p>
+  <ol class="loop">
+    <li><span class="number">1 →</span><b>予測する</b><p>今の重みで入力を計算し、答え候補に点数をつける。</p></li>
+    <li><span class="number">2 →</span><b>ズレを測る</b><p>正解に割り当てた確率から、誤差の大きさ「損失」を求める。</p></li>
+    <li><span class="number">3 →</span><b>勾配を計算する</b><p>各重みを少し動かすと、損失がどう変わるかを逆向きにたどる。</p></li>
+    <li><span class="number">4</span><b>重みを更新する</b><p>損失を減らす方向へ、学習対象の重みを少しずつ動かす。</p></li>
+  </ol>
+  <div class="return">↶ 更新した重みを使って、次の予測へ</div>
+  <div class="equation">新しい重み ＝ 今の重み − 学習率 × 勾配</div>
+  <p class="caption">式は基本的な勾配降下法です。学習率は1回の調整の大きさ。書籍ではAdamWを使うため、更新量には過去の勾配なども反映します。「逆向きにたどる」計算が誤差逆伝播です。</p>
+  <div class="flow" role="img" aria-label="入力から予測へ進む計算の後、損失から重みへ勾配を伝える">
+    <div class="node"><strong>入力</strong><span class="small">ここから計算</span></div><div class="arrow" aria-hidden="true">→</div>
+    <div class="node weight"><strong>モデル内部の重み</strong><span class="small">更新対象を選べる</span></div><div class="arrow" aria-hidden="true">←</div>
+    <div class="node value"><strong>損失からの勾配</strong><span class="small">どちらへ動かすか</span></div>
+  </div>
+  <p class="takeaway">重みの更新が、次に同じ文章を読んだときの情報の組み合わせ方に効きます。</p>
+  <p>たとえばAttentionの学習対象の重みが変わると、同じ文章でも注意を向ける割合が変わりえます。その後の情報の組み合わせ方や、最後の候補への点数も変わります。</p>
+  <details><summary>書籍のコードでは、どこで重みが変わる？</summary>
+    <p>第6章の学習ループから、連続する2行を抜粋しています（p.207、リスト6-10）。</p>
+    <pre><code>loss.<span class="code-fn">backward</span>()
+optimizer.<span class="code-fn">step</span>()</code></pre>
+    <p><code>backward()</code>は勾配を計算し、<code>step()</code>が重みを更新します。モデルの重みを実際に変えるのは後者です。</p>
+  </details>
+</section>
+
+<section id="classification" aria-labelledby="classification-title">
+  <div class="step">03 / 具体例A：分類チューニング</div>
+  <h2 id="classification-title">「正解ラベル」に高い確率をつける。</h2>
+  <p>これ以降は、同じメールを2通りの方法で扱います。分類チューニングでは、文章と正解ラベルの組を例題にします。</p>
+  <div class="mail"><small>説明用のメール</small>「賞金が当たりました。今すぐこちらから受け取ってください。」<br><strong>正解ラベル：spam</strong></div>
+  <p>書籍の第6章では、GPT本体を引き継ぎ、最後の出力層を分類用に交換します。出力層は内部表現を受け取り、答え候補ごとに点数をつける部品です。</p>
+  <div class="head-row"><div class="name">元のGPT-2</div><div class="node value"><strong>GPT本体の内部表現</strong></div><div class="arrow" aria-hidden="true">→</div><div class="node"><strong>50,257個の点数</strong><span class="small">語彙の各トークンに対応</span></div></div>
+  <div class="head-row"><div class="name">分類用に変更</div><div class="node value"><strong>GPT本体の内部表現</strong></div><div class="arrow" aria-hidden="true">→</div><div class="node weight"><strong>2個の点数</strong><span class="small">not spam / spamに対応</span></div></div>
+  <div class="two">
+    <div class="panel cool"><h3>確率分布は、残っている。</h3>
+      <div class="score-row"><span>not spam</span><div class="track"><div class="fill neutral" style="width:12%"></div></div><output>12%</output></div>
+      <div class="score-row"><span>spam</span><div class="track"><div class="fill" style="width:88%"></div></div><output>88%</output></div>
+      <p class="caption">説明用の確率。2個の点数をsoftmaxで合計1の確率に変換しています。</p>
+    </div>
+    <div class="panel"><h3>表示するときに1つ選ぶ。</h3><p>最も高い確率の位置を選び、そこにつけた名前を返します。</p><div class="label-result">表示：<strong>spam</strong></div><p class="caption">「spam」と出ても確信度100%という意味ではありません。この文字列は分類ラベルの名前です。</p></div>
+  </div>
+  <p><strong>二択にするのは出力層の設計、正しく選べるようにするのが学習です。</strong>正解がspamなら、その確率が高くなるように損失を計算し、重みを調整します。</p>
+  <h3 class="scope-title" id="why-train-block">最後のブロックも学ぶと、特徴の作り方まで変えられる。</h3>
+  <p>出力層だけを学習する方法もあります。ただし、それでは<strong>受け取った特徴をどう判定に使うか</strong>しか調整できません。最後のTransformerブロックも学習すると、判定に渡す内部表現そのものを変えられます。</p>
+  <div class="two">
+    <div class="panel scope-card">
+      <h4>出力層だけを学習</h4>
+      <div class="scope-path" role="img" aria-label="GPT本体を固定すると、同じ文章の内部表現hは同じまま。出力層だけを更新して、その特徴の使い方を変える">
+        <div class="node"><strong>GPT本体：固定</strong><span class="small">特徴を作る重みはそのまま</span></div>
+        <div class="down" aria-hidden="true">↓</div>
+        <div class="node value"><strong>内部表現 h：同じ値</strong><span class="small">同じ文章を同じ条件で計算</span></div>
+        <div class="down" aria-hidden="true">↓</div>
+        <div class="node weight"><strong>出力層：更新</strong><span class="small">特徴のどこを重視するかを学ぶ</span></div>
+      </div>
+      <p><strong>特徴の使い方を変える。</strong><br>すでにspamを見分けやすい特徴なら、この調整だけでも分類できます。</p>
+    </div>
+    <div class="panel scope-card">
+      <h4>最後のブロックも学習</h4>
+      <div class="scope-path" role="img" aria-label="前半を固定し、最後のTransformerブロックと最後のLayerNormを更新すると、同じ文章でも内部表現hが変わりうる。出力層も更新する">
+        <div class="node weight"><strong>最後のブロックなど：更新</strong><span class="small">前半は固定・最後のLayerNormも更新</span></div>
+        <div class="down" aria-hidden="true">↓</div>
+        <div class="node value"><strong>内部表現 h：変わりうる</strong><span class="small">同じ文章でも特徴を作り直せる</span></div>
+        <div class="down" aria-hidden="true">↓</div>
+        <div class="node weight"><strong>出力層：更新</strong><span class="small">変化した特徴の使い方も学ぶ</span></div>
+      </div>
+      <p><strong>特徴の作り方も変える。</strong><br>spamを見分けやすい特徴になるよう、Attentionやその後の変換も調整できます。</p>
+    </div>
+  </div>
+  <p>たとえば「賞金が当たりました」という勧誘と、「『賞金が当たりました』という詐欺に注意」という注意喚起。固定した特徴で両者を見分けにくい場合、最後のブロックも学習することで、周囲の文脈の違いを判定に使いやすくする余地があります。</p>
+  <p class="caption">これは構造から考えた説明例です。事前学習では次トークン予測に使っていた特徴を、分類に合うよう調整する、と考えてください。</p>
+  <div class="book-note"><p><strong>書籍が最後のブロックも学習する理由は、実験で予測性能が改善したためです。</strong>出力層だけでも学習できるとしたうえで、追加の層を更新すると性能が大きく向上したと説明しています。後半の層に絞ると、全層を学習するより計算量も抑えられます（p.196）。</p></div>
+  <details><summary>書籍では、どの層を更新する？</summary>
+    <p>この範囲は書籍第6章の選択です。分類チューニングで必ずこうする、という決まりではありません。</p>
+    <div class="layers" role="img" aria-label="入力に近い埋め込みと最初の11ブロックを固定し、最後のTransformerブロック、LayerNorm、分類出力層を更新する">
+      <div class="layer"><span>埋め込み ＋ 最初の11ブロック</span><small>重みを固定</small></div><div class="down" aria-hidden="true">↓</div>
+      <div class="layer trainable"><span>最後のTransformerブロック</span><small>重みを更新</small></div><div class="down" aria-hidden="true">↓</div>
+      <div class="layer trainable"><span>最後のLayerNorm</span><small>重みを更新</small></div><div class="down" aria-hidden="true">↓</div>
+      <div class="layer trainable"><span>新しい分類用の出力層</span><small>重みを更新</small></div>
+    </div>
+    <p>同じ入力を同じ推論条件で比べると、固定した前半の内部表現は変わりません。更新した後半では変わりえます。書籍では文章全体を参照できる最後の入力位置の出力を分類に使います（pp.196–200）。</p>
+  </details>
+  <details><summary>著者の追加実験では、出力層だけとどれくらい違った？</summary>
+    <table class="comparison">
+      <caption>GPT-2 smallのスパム分類。事前学習済みモデル・最後のトークンを使う条件での比較</caption>
+      <thead><tr><th scope="col">学習する範囲</th><th scope="col">テスト正解率</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">出力層のみ</th><td>72.00%</td></tr>
+        <tr><th scope="row">最後の1ブロックなど＋出力層</th><td>95.00%</td></tr>
+        <tr><th scope="row">最後の2ブロックなど＋出力層</th><td>98.33%</td></tr>
+        <tr><th scope="row">全層</th><td>96.67%</td></tr>
+      </tbody>
+    </table>
+    <p>「など」には最後のLayerNormを含みます。この実験では、最後のブロックも学習すると精度が上がりました。ただし、層を増やすほど必ずよくなるわけではありません。学習範囲は、データに応じて精度と計算量を見ながら選びます。</p>
+    <p class="caption source-url">付録B（p.312）が案内する著者の追加実験、表の行1・3・4・5より。出典：<a href="https://github.com/rasbt/LLMs-from-scratch/tree/main/ch06/02_bonus_additional-experiments">https://github.com/rasbt/LLMs-from-scratch/tree/main/ch06/02_bonus_additional-experiments</a></p>
+  </details>
+  <p class="takeaway">次の模型で学習範囲を切り替え、内部表現 h が変わるかを比べてみましょう。</p>
+</section>
+
+<section id="experiment" aria-labelledby="experiment-title">
+  <div class="step">04 / 重み → 内部表現 → 確率を、数値で追う</div>
+  <h2 id="experiment-title">同じ入力を、更新した重みで計算し直す。</h2>
+  <p>大きなGPTを、<strong>重みが8個だけの模型</strong>に縮めて考えます。メールに対応する入力を <code>x = [1, 0.5]</code> に固定し、正解をspamとします。</p>
+  <p class="caption">GPTの実測値ではありません。文章の処理を省いた2層の線形モデルです。AはTransformerブロックの再現ではなく、「特徴を作る重み」の役割を表します。ボタンを押すたびに、実際に損失と勾配を計算して重みを更新します。学習率は0.3です。</p>
+  <noscript><p class="book-note">JavaScriptを有効にすると学習を操作できます。ここに表示している数値は学習前の状態です。</p></noscript>
+  <div class="controls">
+    <button type="button" class="primary" id="train-step">学習を1回進める</button>
+    <button type="button" id="reset-training">最初に戻す</button>
+    <span class="step-count" id="step-count">0 / 12回更新</span>
+  </div>
+  <label class="mode"><input type="checkbox" id="head-only" aria-describedby="mode-note">出力層 B だけを学習する（Aは固定）</label>
+  <p class="caption" id="mode-note">今はAとBの両方を更新します。切り替えると学習前に戻り、同じ条件から比較できます。</p>
+  <p class="status" id="training-status" role="status" aria-live="polite" aria-atomic="true">まず1回進めて、オレンジの重みと緑の内部表現が両方変わる様子を見てください。</p>
+  <div class="experiment">
+    <div class="panel warm"><span class="tag weight" id="a-mode-label">学習で更新する数値</span><h3>内部表現を作る重み A</h3><div class="matrix" id="matrix-a" role="img" aria-label="重みA：0.800、−0.200、0.200、0.600"><span>0.800</span><span>−0.200</span><span>0.200</span><span>0.600</span></div><p class="small">入力 x に A をかける</p></div>
+    <div class="arrow" aria-hidden="true">→</div>
+    <div class="panel cool"><span class="tag value">今回の計算結果</span><h3>内部表現 h = A x</h3><div class="vector" id="hidden-vector"><span>0.700</span><span>0.500</span></div><p class="small" id="hidden-note">同じ入力でも、Aが変われば<br>この値が変わる</p></div>
+    <div class="arrow" aria-hidden="true">→</div>
+    <div class="panel warm"><span class="tag weight">学習で更新する数値</span><h3>分類用の重み B</h3><div class="matrix" id="matrix-b" role="img" aria-label="重みB：0.600、−0.300、−0.400、0.500"><span>0.600</span><span>−0.300</span><span>−0.400</span><span>0.500</span></div><p class="small">上の行：not spam<br>下の行：spam の点数を作る</p></div>
+  </div>
+  <div class="two">
+    <div class="panel"><h3>計算の出口：2クラスの確率</h3><p class="small" id="logits">点数：not spam 0.270 / spam −0.030</p>
+      <div class="score-row"><span>not spam</span><div class="track"><div id="not-spam-bar" class="fill neutral" style="width:57.4443%"></div></div><output id="not-spam-value">57.4%</output></div>
+      <div class="score-row"><span>spam</span><div class="track"><div id="spam-bar" class="fill" style="width:42.5557%"></div></div><output id="spam-value">42.6%</output></div>
+      <div class="label-result">予測：<strong id="prediction">not spam（不正解）</strong></div>
+    </div>
+    <div class="panel cool"><h3>何をよくしたい？</h3><p>この例の正解はspamです。spamの確率が低いほど、損失が大きくなります。</p><div class="equation">損失 ＝ −log(spamの確率)</div><p class="caption">この模型では正解が1つなので、交差エントロピーはこの式になります。</p></div>
+  </div>
+  <div class="metrics"><div class="metric">更新回数<strong id="step-value">0回</strong></div><div class="metric">正解spamの確率<strong id="probability-value">42.6%</strong></div><div class="metric">損失：小さいほどよい<strong id="loss-value">0.854</strong></div></div>
+  <table class="comparison">
+    <caption id="update-caption">学習前の値。1回進めると、直前の状態との比較に変わります。</caption>
+    <thead><tr><th scope="col">変化を追う値</th><th scope="col">更新前</th><th scope="col">更新後</th></tr></thead>
+    <tbody><tr><th scope="row">重み A の左上</th><td id="a-before">0.800</td><td id="a-after">0.800</td></tr><tr><th scope="row">重み B の左下</th><td id="b-before">−0.400</td><td id="b-after">−0.400</td></tr><tr><th scope="row">内部表現 h の1つ目</th><td id="h-before">0.700</td><td id="h-after">0.700</td></tr><tr><th scope="row">正解spamの確率</th><td id="p-before">42.6%</td><td id="p-after">42.6%</td></tr></tbody>
+  </table>
+  <details><summary>1個の重みを更新する計算を見てみる</summary><p id="gradient-label">次の更新で、重みAの左上をどう動かすか。</p><div class="equation" id="gradient-equation">0.800 − 0.3 × 0.574 ＝ 0.628</div><p class="caption" id="gradient-note">勾配が正なので重みを小さくします。ほかの重みも同じ更新前の状態から勾配を計算し、一緒に更新します。表示は小数第3位に丸めています。</p></details>
+  <p class="takeaway" id="experiment-takeaway">内部表現そのものを保存し直すのではなく、それを作る重みを変えます。</p>
+  <p class="caption">実際は多くの例を使って学習し、未学習のデータでも評価します。この1例の損失が下がっても、他のメールを正しく分類できる証明にはなりません。</p>
+</section>
+
+<section id="instruction" aria-labelledby="instruction-title">
+  <div class="step">05 / 具体例B：インストラクションチューニング</div>
+  <h2 id="instruction-title">「望ましい回答文」を正解として学ぶ。</h2>
+  <p>今度はラベルに加えて理由も答えてほしいとします。学習データは<strong>指示・入力・望ましい回答</strong>の組になります。</p>
+  <div class="training-pair">
+    <div class="panel blue"><span class="tag">指示 ＋ 入力</span><h3>このメールを判定し、理由も説明して。</h3><p>「賞金が当たりました。今すぐこちらから受け取ってください。」</p></div>
+    <div class="arrow" aria-hidden="true">→</div>
+    <div class="panel cool"><span class="tag value">正解の回答例</span><h3>迷惑メールです。</h3><p>賞金を口実に、リンク先での行動を急がせているためです。</p></div>
+  </div>
+  <p>語彙全体に点数をつける出力層を使い続けます。回答文をトークンに分け、<strong>各位置で正解の次トークンの確率が高くなるように</strong>重みを調整します。</p>
+  <div class="flow" role="img" aria-label="指示と入力をGPTが処理し、語彙全体の確率から次のトークンを予測する">
+    <div class="node blue"><strong>指示 ＋ メール</strong><span class="small">回答の途中までの文も含む</span></div><div class="arrow" aria-hidden="true">→</div>
+    <div class="node weight"><strong>GPT ＋ 語彙用の出力層</strong><span class="small">書籍の第7章では全層を学習</span></div><div class="arrow" aria-hidden="true">→</div>
+    <div class="node value"><strong>語彙全体の確率</strong><span class="small">次のトークンを予測</span></div>
+  </div>
+  <p>第7章では、埋め込み・すべてのTransformerブロック・LayerNorm・出力層を学習対象にします。<strong>次のトークンに点数をつける部分に加え、指示や文脈から特徴を作る部分も調整します。</strong>これは書籍での選択で、全層の更新がインストラクションチューニングの必須条件ではありません。</p>
+  <div class="panel">
+    <h3>学習中は、正解文を1つずらして対応させる。</h3>
+    <p class="small">「指示＋メール」を共通の前置きとして、回答の冒頭を拡大すると…</p>
+    <div class="teacher-labels"><span>モデルが参照できる文脈</span><span>次の正解</span></div>
+    <div class="teacher-row"><div class="tokens"><span class="token context">指示＋メール</span></div><span class="arrow" aria-hidden="true">→</span><span class="token target">迷惑</span></div>
+    <div class="teacher-row"><div class="tokens"><span class="token context">指示＋メール</span><span class="token">迷惑</span></div><span class="arrow" aria-hidden="true">→</span><span class="token target">メール</span></div>
+    <div class="teacher-row"><div class="tokens"><span class="token context">指示＋メール</span><span class="token">迷惑</span><span class="token">メール</span></div><span class="arrow" aria-hidden="true">→</span><span class="token target">です</span></div>
+    <div class="teacher-row"><div class="tokens"><span class="token context">指示＋メール</span><span class="token">迷惑</span><span class="token">メール</span><span class="token">です</span></div><span class="arrow" aria-hidden="true">→</span><span class="token target">。</span></div>
+    <p class="caption">分割は説明用です。実際のトークン境界とは異なります。この後も理由文と終了トークンまで続きます。図は予測の対応関係を示し、実装では複数の位置をまとめて計算できます。</p>
+  </div>
+  <div class="flow" role="img" aria-label="各位置の次トークン予測の損失をまとめ、誤差逆伝播を行い、重みを更新する">
+    <div class="node value"><strong>各位置の予測のズレ</strong></div><div class="arrow" aria-hidden="true">→</div><div class="node"><strong>損失をまとめる</strong></div><div class="arrow" aria-hidden="true">→</div><div class="node weight"><strong>勾配 → 重みを更新</strong></div>
+  </div>
+  <p>多様な指示と回答を使うことで、指示に合う回答のパターンへ調整します。実際に使うときは、モデル自身が選んだトークンを文脈に足して回答を続けます。</p>
+  <div class="book-note"><p><strong>指示を書くことと、インストラクションチューニングは別です。</strong>入力欄に「理由も説明して」と書くのは推論時の指示。指示と正解回答のデータで重みを更新するのがインストラクションチューニングです。</p></div>
+  <table class="comparison">
+    <caption>書籍の第6章と第7章で、何を正解とし、どこを更新するか</caption>
+    <thead><tr><th scope="col">比べる点</th><th scope="col">分類チューニング</th><th scope="col">インストラクションチューニング</th></tr></thead>
+    <tbody><tr><th scope="row">学習データの正解</th><td>spamというクラス</td><td>指示に合う回答文</td></tr><tr><th scope="row">確率を割り当てる対象</th><td>2クラス</td><td>語彙全体のトークン</td></tr><tr><th scope="row">損失でよくしたいこと</th><td>正解クラスの確率</td><td>各位置の正解トークンの確率</td></tr><tr><th scope="row">書籍での学習範囲</th><td>最後のブロック・最後のLayerNorm・分類出力層</td><td>埋め込みから語彙出力層までの全層</td></tr><tr><th scope="row">共通する仕組み</th><td colspan="2">学習済みの重みを起点に、損失から勾配を計算して更新する。</td></tr></tbody>
+  </table>
+  <details><summary>事前学習も「次のトークン予測」なら、何が違う？</summary><p>インストラクションチューニングでも、次トークン予測という計算の枠組みは同じです。違うのは、学習済みの重みから始め、指示と望ましい回答の形に整えたデータを使うことです。モデル内部に「指示に従うスイッチ」が1個追加されるわけではありません。</p></details>
+  <details><summary>書籍の損失計算では、入力の指示文も学習する？</summary><p>ここでは回答部分の学習に焦点を絞っています。第7章の基本実装では、入力と回答をつないだ列に対して次トークン予測を行います。余分なパディングは損失から除きます。指示部分を損失から除き、回答部分に絞る方法も紹介されています（pp.233–234、図7-13）。</p></details>
+</section>
+
+<footer>
+  <h2>書籍で読み返すなら、この部分</h2>
+  <p>『つくりながら学ぶ！LLM自作入門』をもとに、概念の理解に必要な部分を再構成しました。ページ番号はPDFの通し番号ではなく紙面の番号です。</p>
+  <ul class="source-list"><li>重みを更新する共通の手順：pp.206–207、図6-15・リスト6-10。</li><li>分類の出力層と更新対象：pp.194–200、図6-9・図6-10・図6-12。</li><li>分類の確率・損失・ラベル：pp.202–204、図6-14、およびp.212、リスト6-12。</li><li>インストラクションチューニングと学習データ：pp.216–219、図7-1・図7-4。</li><li>次トークンの正解と損失の対象：pp.227–234、特に図7-13。学習手順の再利用：p.241、7.6節。</li></ul>
+  <p class="source-url">第7章の学習範囲は著者の公式コードも参照：<a href="https://github.com/rasbt/LLMs-from-scratch/blob/main/ch07/01_main-chapter-code/gpt_instruction_finetuning.py">https://github.com/rasbt/LLMs-from-scratch/blob/main/ch07/01_main-chapter-code/gpt_instruction_finetuning.py</a></p>
+  <p>メール文・回答文・数値の模型・図は説明のために作成したものです。実際のGPTの内部表現や学習結果を可視化したものではありません。</p>
+</footer>
+</main>
+<script>
+"use strict";
+
+const inputVector = [1, 0.5];
+const learningRate = 0.3;
+const maxUpdates = 12;
+
+function initialModel() {
+  return { A: [[0.8, -0.2], [0.2, 0.6]], B: [[0.6, -0.3], [-0.4, 0.5]] };
+}
+
+function matrixVector(matrix, vector) {
+  return matrix.map(row => row.reduce((sum, weight, i) => sum + weight * vector[i], 0));
+}
+
+function predict(model) {
+  const hidden = matrixVector(model.A, inputVector);
+  const logits = matrixVector(model.B, hidden);
+  const maximum = Math.max(...logits);
+  const exps = logits.map(value => Math.exp(value - maximum));
+  const total = exps.reduce((sum, value) => sum + value, 0);
+  const probabilities = exps.map(value => value / total);
+  return { hidden, logits, probabilities, loss: -Math.log(probabilities[1]) };
+}
+
+function gradients(model) {
+  const prediction = predict(model);
+  const delta = [prediction.probabilities[0], prediction.probabilities[1] - 1];
+  const hiddenGradient = inputVector.map((_, j) =>
+    model.B.reduce((sum, row, i) => sum + row[j] * delta[i], 0)
+  );
+  return {
+    A: hiddenGradient.map(value => inputVector.map(x => value * x)),
+    B: delta.map(value => prediction.hidden.map(h => value * h))
+  };
+}
+
+function updateModel(model, outputOnly) {
+  const gradient = gradients(model);
+  return {
+    A: model.A.map((row, i) => row.map((weight, j) =>
+      outputOnly ? weight : weight - learningRate * gradient.A[i][j]
+    )),
+    B: model.B.map((row, i) => row.map((weight, j) => weight - learningRate * gradient.B[i][j]))
+  };
+}
+
+let currentModel = initialModel();
+let updateCount = 0;
+const byId = id => document.getElementById(id);
+const number = value => value.toFixed(3).replace("-", "−");
+const percent = value => (value * 100).toFixed(1) + "%";
+
+function showMatrix(id, matrix, previous, frozen) {
+  const element = byId(id);
+  element.classList.toggle("frozen", frozen);
+  element.querySelectorAll("span").forEach((cell, index) => {
+    const i = Math.floor(index / 2);
+    const j = index % 2;
+    cell.textContent = number(matrix[i][j]);
+    cell.classList.toggle("different", !frozen && Math.abs(matrix[i][j] - previous[i][j]) > 1e-9);
+  });
+  element.setAttribute("aria-label", `重み${id === "matrix-a" ? "A" : "B"}：${matrix.flat().map(number).join("、")}${frozen ? "。固定中" : ""}`);
+}
+
+function render(previous = currentModel) {
+  const outputOnly = byId("head-only").checked;
+  const now = predict(currentModel);
+  const before = predict(previous);
+  showMatrix("matrix-a", currentModel.A, previous.A, outputOnly);
+  showMatrix("matrix-b", currentModel.B, previous.B, false);
+  byId("hidden-vector").querySelectorAll("span").forEach((cell, i) => {
+    cell.textContent = number(now.hidden[i]);
+  });
+  byId("a-mode-label").textContent = outputOnly ? "固定：学習で更新しない" : "学習で更新する数値";
+  byId("hidden-note").textContent = outputOnly
+    ? "Aが固定なので、同じ入力の内部表現は変わらない"
+    : "Aを更新すると、同じ入力でもこの値が変わる";
+  byId("mode-note").textContent = outputOnly
+    ? "今はBだけを更新します。Aと内部表現hが変わらないことを確認してください。切り替えると学習前に戻ります。"
+    : "今はAとBの両方を更新します。切り替えると学習前に戻り、同じ条件から比較できます。";
+  byId("logits").textContent = `点数：not spam ${number(now.logits[0])} / spam ${number(now.logits[1])}`;
+  for (const [name, i] of [["not-spam", 0], ["spam", 1]]) {
+    byId(`${name}-bar`).style.width = `${now.probabilities[i] * 100}%`;
+    byId(`${name}-value`).textContent = percent(now.probabilities[i]);
+  }
+  byId("prediction").textContent = now.probabilities[1] > now.probabilities[0]
+    ? "spam（正解）" : "not spam（不正解）";
+  byId("step-value").textContent = `${updateCount}回`;
+  byId("step-count").textContent = `${updateCount} / ${maxUpdates}回更新`;
+  byId("probability-value").textContent = percent(now.probabilities[1]);
+  byId("loss-value").textContent = number(now.loss);
+  byId("train-step").disabled = updateCount >= maxUpdates;
+  byId("update-caption").textContent = updateCount
+    ? `${updateCount}回目の更新の前後。重みの下線は、直前の更新で変わった箇所です。`
+    : "学習前の値。1回進めると、直前の状態との比較に変わります。";
+  const comparisons = [
+    ["a", previous.A[0][0], currentModel.A[0][0], number],
+    ["b", previous.B[1][0], currentModel.B[1][0], number],
+    ["h", before.hidden[0], now.hidden[0], number],
+    ["p", before.probabilities[1], now.probabilities[1], percent]
+  ];
+  for (const [key, oldValue, newValue, format] of comparisons) {
+    byId(`${key}-before`).textContent = format(oldValue);
+    byId(`${key}-after`).textContent = format(newValue);
+  }
+  const source = updateCount ? previous : currentModel;
+  const gradient = gradients(source);
+  const weight = outputOnly ? source.B[1][0] : source.A[0][0];
+  const derivative = outputOnly ? gradient.B[1][0] : gradient.A[0][0];
+  const next = weight - learningRate * derivative;
+  byId("gradient-label").textContent = `${updateCount ? "直前" : "次"}の更新で、重み${outputOnly ? "Bの左下" : "Aの左上"}をどう動かすか。`;
+  byId("gradient-equation").textContent = `${number(weight)} − 0.3 × (${number(derivative)}) ＝ ${number(next)}`;
+  byId("gradient-note").textContent = `勾配が${derivative >= 0 ? "正なので重みを小さく" : "負なので重みを大きく"}します。ほかの学習対象の重みも、同じ更新前の状態から勾配を計算します。表示は小数第3位に丸めています。`;
+  byId("experiment-takeaway").textContent = outputOnly
+    ? "出力層だけを学習するなら、同じ内部表現から答えを作る部分が変わります。"
+    : "内部表現そのものを保存し直すのではなく、それを作る重みを変えます。";
+  byId("training-status").textContent = updateCount
+    ? `${updateCount}回更新。${outputOnly ? "Aと内部表現hはそのまま、Bが変わりました。" : "AとBが変わり、内部表現hも計算し直されました。"}正解spamの確率：${percent(before.probabilities[1])} → ${percent(now.probabilities[1])}。${updateCount === maxUpdates ? "最初に戻すと、もう一方の学び方も試せます。" : ""}`
+    : outputOnly
+      ? "Aを固定した状態です。1回進めて、内部表現が同じでも確率が変わることを見てください。"
+      : "まず1回進めて、オレンジの重みと緑の内部表現が両方変わる様子を見てください。";
+}
+
+byId("train-step").addEventListener("click", () => {
+  if (updateCount >= maxUpdates) return;
+  const previous = currentModel;
+  currentModel = updateModel(currentModel, byId("head-only").checked);
+  updateCount += 1;
+  render(previous);
+});
+
+function resetTraining() {
+  currentModel = initialModel();
+  updateCount = 0;
+  render();
+}
+
+byId("reset-training").addEventListener("click", resetTraining);
+byId("head-only").addEventListener("change", resetTraining);
+render();
+</script>
+</body>
+</html>

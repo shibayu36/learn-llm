@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>KVキャッシュで生成が速くなる理由</title>
+<style>
+:root{--bg:#f6f5ef;--paper:#fff;--ink:#25332e;--muted:#596a62;--line:#d9e1d9;--green:#176c53;--soft:#e4f2e9;--orange:#9c481e;--warm:#fcebdd;--blue:#365f8e;--cool:#edf3fa;--mono:ui-monospace,SFMono-Regular,Consolas,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.85 -apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Yu Gothic",sans-serif}
+main{max-width:1100px;margin:auto;padding:46px 28px 64px}
+header{padding:8px 0 30px}
+.eyebrow,.step{font-size:13px;font-weight:700;letter-spacing:.08em;color:var(--green)}
+h1{font-size:clamp(30px,4.6vw,49px);line-height:1.4;margin:12px 0 20px}
+h2{font-size:clamp(23px,3vw,30px);line-height:1.5;margin:8px 0 12px}
+h3{font-size:19px;line-height:1.6;margin:0 0 12px}
+p{margin:8px 0 16px}
+.lead{font-size:20px;max-width:850px}
+.lead strong{background:linear-gradient(transparent 67%,#cee6d6 67%)}
+section{background:var(--paper);padding:30px;border:1px solid var(--line);border-radius:20px;margin-bottom:26px;min-width:0}
+figure{margin:24px 0 16px}
+figcaption,.small{font-size:14px;color:var(--muted)}
+figcaption{margin-top:12px}
+.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+.panel{padding:22px;background:#f4f6f2;border-radius:12px;min-width:0}
+.warm{background:var(--warm)}
+.cool{background:var(--soft)}
+.flow{display:flex;align-items:stretch;gap:10px;margin:22px 0;min-width:0}
+.node{flex:1;min-width:0;background:#f1f4ef;border:1px solid var(--line);border-radius:10px;padding:16px 12px;text-align:center}
+.node strong{display:block;font-size:19px}
+.node small{display:block;font-size:13px;color:var(--muted)}
+.node.active{background:var(--warm);border-color:#dcbda8}
+.node.saved{background:var(--soft);border-color:#a4c9b4}
+.arrow{align-self:center;color:var(--muted);font-size:24px;flex:0 0 auto}
+.tokens{display:flex;flex-wrap:wrap;gap:7px;margin:16px 0}
+.token{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:57px;padding:9px 7px;border-radius:8px;background:var(--warm);border:1px solid #dcbda8}
+.token b{font-size:25px;line-height:1.3}
+.token small{font-size:11px;color:var(--orange)}
+.token.saved{background:var(--soft);border-color:#a4c9b4}
+.token.saved small{color:var(--green)}
+.token.neutral{background:#edf0eb;border-color:var(--line)}
+.qkv{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.qkv .node{padding:20px 14px}
+.letter{font:34px/1.5 var(--mono);display:block;color:var(--green)}
+.qkv p{font-size:15px;margin:8px 0 0}
+.qkv small{margin-top:5px}
+.weights{display:flex;align-items:flex-end;gap:12px;justify-content:center;margin:24px 0 10px;height:140px}
+.weighted{flex:1;max-width:115px;display:flex;flex-direction:column;align-items:center;gap:6px}
+.weight-bar{width:65%;background:#80ae96;border-radius:4px 4px 0 0}
+.weighted b{font-size:19px}
+.weighted small{font:13px var(--mono);color:var(--muted)}
+.equation{font:16px/1.9 var(--mono);overflow-wrap:anywhere;background:#f1f4ef;padding:16px;border-radius:8px}
+.stable{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:18px 0}
+.prefix{font-size:25px;letter-spacing:.12em;background:var(--soft);padding:8px 14px;border-radius:8px}
+.future{font-size:25px;letter-spacing:.12em;color:var(--muted)}
+.stamp{font-size:14px;color:var(--green);font-weight:650}
+.controls{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:20px 0}
+button{font:inherit;border:1px solid #a9beb0;background:var(--paper);color:var(--ink);border-radius:8px;padding:9px 16px;min-height:44px;cursor:pointer}
+button.primary{background:var(--green);color:#fff;border-color:var(--green)}
+button:hover{box-shadow:inset 0 0 0 2px #a4c9b4}
+button:disabled{opacity:.4;cursor:default;box-shadow:none}
+:focus-visible{outline:3px solid var(--blue);outline-offset:4px}
+.status{font-size:17px;font-weight:650}
+.legend{display:flex;flex-wrap:wrap;gap:18px;font-size:13px;margin:16px 0}
+.legend span{display:flex;align-items:center;gap:7px}
+.swatch{display:inline-block;width:16px;height:16px;background:var(--warm);border:1px solid #dcbda8;border-radius:4px}
+.swatch.saved{background:var(--soft);border-color:#a4c9b4}
+.measure{font-size:19px;margin:14px 0}
+.measure b{font:32px var(--mono)}
+.process{border-top:1px solid var(--line);padding-top:14px;font-size:15px}
+.result{display:flex;gap:12px;align-items:center;justify-content:center;margin:20px 0 6px;font-size:19px}
+.result b{font-size:30px;color:var(--green)}
+.point{font-size:19px;font-weight:650;margin:22px 0 6px}
+.checks{list-style:none;padding:0;margin:12px 0}
+.checks li{margin:10px 0;padding-left:22px;position:relative}
+.checks li::before{content:'•';position:absolute;left:3px;color:var(--green)}
+details{border-top:1px solid var(--line);padding:16px 0 0;margin-top:22px}
+summary{cursor:pointer;font-weight:650;min-height:44px;align-content:center}
+details p{margin-top:12px}
+code{font-family:var(--mono);font-size:.9em;overflow-wrap:anywhere}
+pre{white-space:pre-wrap;overflow-wrap:anywhere}
+a{color:var(--green);text-underline-offset:4px;overflow-wrap:anywhere}
+.source{font-size:14px;overflow-wrap:anywhere}
+footer{padding:0 4px;color:var(--muted)}
+@media(max-width:760px){main{padding:26px 16px 40px}section{padding:23px 20px}.flow{flex-direction:column}.flow .arrow{transform:rotate(90deg)}.two{grid-template-columns:1fr}.qkv{grid-template-columns:1fr}.qkv .node{text-align:left;display:grid;grid-template-columns:48px 1fr;gap:0 10px}.qkv .letter{grid-row:span 3}.qkv p{margin-top:0}.token{min-width:52px}.weights{gap:6px}}
+@media(max-width:400px){main{padding:22px 12px}section{padding:20px 15px}.panel{padding:18px 14px}.token{min-width:48px}.tokens{gap:5px}.prefix,.future{font-size:21px}.lead{font-size:18px}}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div class="eyebrow">生成の計算 → 同じ計算 → KVキャッシュ</div>
+  <h1>計算済みの K・V を残すと、<br>次の1文字を速く作れる。</h1>
+  <p class="lead">今のコードは、1文字足すたびに全文を計算し直します。<br><strong>過去の文字の計算結果を使い回す</strong>のが KVキャッシュです。</p>
+  <p class="small">このリポジトリに合わせて1文字＝1トークンで説明します。生成する文字とAttentionの重みは説明用の例です。</p>
+</header>
+
+<section aria-labelledby="generation-title">
+  <div class="step">01 / まず、生成で何をしている？</div>
+  <h2 id="generation-title">「ここまでの文」から、次の1文字に点数を付ける。</h2>
+  <p>「日本の首都は」の次に「東」を選ぶとします。生成中は学習済みの重みを固定し、掛け算・足し算などで次の文字を予測します。</p>
+  <figure>
+    <div class="flow">
+      <div class="node"><strong>日 本 の 首 都 は</strong><small>文字をIDにする</small></div>
+      <span class="arrow" aria-hidden="true">→</span>
+      <div class="node"><strong>数値の並び</strong><small>トークン埋め込み<br>＋位置埋め込み</small></div>
+      <span class="arrow" aria-hidden="true">→</span>
+      <div class="node"><strong>Attention → FFN</strong><small>情報を集めて加工する<br>これを層の数だけ繰り返す</small></div>
+      <span class="arrow" aria-hidden="true">→</span>
+      <div class="node active"><strong>次は「東」</strong><small>末尾「は」の出力から<br>語彙全体に点数を付けて選ぶ</small></div>
+    </div>
+    <figcaption>矢印は1回の生成の流れ。選んだ「東」を末尾に足し、今度は「日本の首都は東」から「京」を予測します。層正規化とショートカット接続は図では省略しています。</figcaption>
+  </figure>
+  <p class="point">今のコードは全位置の予測を計算し、最後の位置の予測だけを使います。</p>
+  <p class="small">点数が最大の文字を選ぶか、点数を確率に変えて抽選します。「東」の計算が「京」を選びます。「京」自身を処理するのはその次の回です。</p>
+</section>
+
+<section aria-labelledby="attention-title">
+  <div class="step">02 / キャッシュする前に、Q・K・V</div>
+  <h2 id="attention-title">Attentionは「どの文字から、どれだけ情報を集めるか」を計算する。</h2>
+  <p>各位置の数値の並びから、別々の重みを掛けて Q・K・V を作ります。末尾「は」の処理で見ると、役割は次のとおりです。</p>
+  <figure>
+    <div class="qkv">
+      <div class="node"><span class="letter">Q</span><strong>どんな情報を探す？</strong><p>「は」のクエリベクトル。</p><small>各文字の K と照合する。</small></div>
+      <div class="node saved"><span class="letter">K</span><strong>どれだけ合う？</strong><p>各文字のキーベクトル。</p><small>Q との内積でAttentionスコアを出す。</small></div>
+      <div class="node saved"><span class="letter">V</span><strong>どんな情報を渡す？</strong><p>各文字の値ベクトル。</p><small>重みを付けて足し合わせる。</small></div>
+    </div>
+    <div class="weights" role="img" aria-label="はのAttentionの重みの説明用の例。日は0.10、本は0.10、のは0.05、首は0.35、都は0.30、はは0.10。">
+      <div class="weighted"><small>0.10</small><div class="weight-bar" style="height:28px"></div><b>日</b></div>
+      <div class="weighted"><small>0.10</small><div class="weight-bar" style="height:28px"></div><b>本</b></div>
+      <div class="weighted"><small>0.05</small><div class="weight-bar" style="height:14px"></div><b>の</b></div>
+      <div class="weighted"><small>0.35</small><div class="weight-bar" style="height:98px"></div><b>首</b></div>
+      <div class="weighted"><small>0.30</small><div class="weight-bar" style="height:84px"></div><b>都</b></div>
+      <div class="weighted"><small>0.10</small><div class="weight-bar" style="height:28px"></div><b>は</b></div>
+    </div>
+    <figcaption>Q と K の照合結果から、合計1の「Attentionの重み」を作ります。この例では「首」「都」の V を多めに取り込みます。数値は説明用で、意味と成分が1対1に対応するわけではありません。</figcaption>
+  </figure>
+  <p>集めた情報を元の情報に足し、FFNで加工します。次の層でも同じ流れを繰り返すため、<strong>層・ヘッドごとに別々の K・V</strong>ができます。</p>
+  <details>
+    <summary>数値と式をつなげる</summary>
+    <p>上の例で「は」に集める情報（コンテキストベクトル）は次の加重和です。V は1個の数値ではなく、数値の並びです。</p>
+    <div class="equation">0.10 × V日 ＋ 0.10 × V本 ＋ 0.05 × Vの<br>＋ 0.35 × V首 ＋ 0.30 × V都 ＋ 0.10 × Vは</div>
+    <p>式で書くと <code>softmax(QKᵀ / √d) V</code>。<code>d</code> は1ヘッドのベクトルの長さです。未来の位置はsoftmaxの前にマスクし、重みを0にします。</p>
+  </details>
+</section>
+
+<section aria-labelledby="causal-title">
+  <div class="step">03 / どうして使い回せる？</div>
+  <h2 id="causal-title">後ろに文字が増えても、前の文字から見える範囲は変わらない。</h2>
+  <p>Causal Attentionでは、各位置は自分と前の文字だけを見ます。「首」の計算を比べてみます。</p>
+  <figure class="two">
+    <div class="panel"><h3>「東」が増える前</h3><div class="stable"><span class="prefix">日本の首</span><span class="future">都は</span></div><span class="stamp">「首」が見られるのは緑の4文字</span></div>
+    <div class="panel"><h3>「東」が増えた後</h3><div class="stable"><span class="prefix">日本の首</span><span class="future">都は東</span></div><span class="stamp">見られる4文字は同じ → 計算結果も同じ</span></div>
+    <figcaption style="grid-column:1/-1">緑は「首」自身と、その前の文字です。同じ重み・位置番号で生成する限り、後ろに「東」が増えても「首」の K・V は変わりません。これは全層で成り立ちます。</figcaption>
+  </figure>
+  <p class="point">だから過去の K・V は、一度作ったものを残しておけます。</p>
+</section>
+
+<section aria-labelledby="cache-title">
+  <div class="step">04 / 1文字ずつ進めて比べる</div>
+  <h2 id="cache-title">最初は全文を計算。2回目からは新しい1文字を処理する。</h2>
+  <div class="controls">
+    <button type="button" id="prev">前の回へ</button>
+    <button type="button" id="next" class="primary">次の回へ</button>
+    <span id="stage" class="status" aria-live="polite"></span>
+  </div>
+  <div class="legend"><span><i class="swatch" aria-hidden="true"></i>その文字を各層で計算</span><span><i class="swatch saved" aria-hidden="true"></i>保存済みの K・V を参照</span></div>
+  <figure>
+    <div class="two">
+      <div class="panel warm">
+        <h3>今の実装：キャッシュなし</h3>
+        <div class="tokens" id="uncached-tokens"></div>
+        <div class="measure">各層で <b id="uncached-count"></b> 文字を処理</div>
+        <div class="process">全位置の Q・K・V、Attention、FFNを計算し直す。</div>
+      </div>
+      <div class="panel cool">
+        <h3>KVキャッシュあり</h3>
+        <div class="tokens" id="cached-tokens"></div>
+        <div class="measure">各層で <b id="cached-count"></b> 文字を処理</div>
+        <div class="process" id="cache-process"></div>
+      </div>
+    </div>
+    <div class="result">次に選ぶ文字 <span aria-hidden="true">→</span><b id="result"></b></div>
+    <figcaption id="demo-caption"></figcaption>
+  </figure>
+  <p class="point">新しい Q は、保存済みの K・V も使って全文から情報を集めます。</p>
+  <p class="small">過去の Q は保存不要です。次の回では新しい文字の Q を使います。Attentionの重みも、新しい Q に合わせて計算し直します。</p>
+  <noscript><p>「日本の首都は」から「東」を選んだ次の回では、キャッシュなしは「日本の首都は東」の7文字を処理します。キャッシュありは「日本の首都は」の K・V を再利用し、「東」の1文字を処理します。</p></noscript>
+</section>
+
+<section aria-labelledby="speed-title">
+  <div class="step">05 / 何が減って、何が残る？</div>
+  <h2 id="speed-title">過去の文字を作り直す計算が減る。過去を参照する計算は残る。</h2>
+  <div class="two">
+    <div class="panel cool"><h3>省ける計算</h3><ul class="checks"><li>過去の Q・K・V の作り直し</li><li>過去の位置のAttention・FFN</li><li>過去の位置の次トークン予測</li></ul></div>
+    <div class="panel"><h3>毎回必要な計算</h3><ul class="checks"><li>新しい文字の Q・K・V</li><li>新しい Q と全 K の照合、全 V の加重和</li><li>新しい位置のFFN・次トークン予測</li></ul></div>
+  </div>
+  <p>たとえば今の実装で7文字を入力すると、各ヘッドで <strong>7 × 7</strong> 個のAttentionスコアを計算します。キャッシュありで新しい1文字を処理するなら <strong>1 × 7</strong> 個です。</p>
+  <p class="small">これはマスク前のスコア数の比較です。処理時間がそのまま7分の1になるという意味ではありません。</p>
+  <p class="point">計算を減らす代わりに、全層・全ヘッドの K・V をメモリに残します。</p>
+  <p>文が長いほど保存量も参照する量も増えます。最初に全文を読む処理を <strong>prefill</strong>、その後1文字ずつ進める処理を <strong>decode</strong> と呼びます。</p>
+  <details>
+    <summary>プロンプトキャッシュとはどうつながる？</summary>
+    <p>ここまでのKVキャッシュは、1回の生成の中で使い回す仕組みです。同じモデル・同じ先頭トークン列の K・V を別のリクエストでも再利用すると、共通部分のprefillも省けます。これがプロンプトキャッシュの基本的な考え方です。</p>
+    <p>再利用できる範囲は、同じ条件で計算した先頭からの共通部分です。前の文脈が違えば、同じ文字でも途中の計算結果は変わります。</p>
+  </details>
+</section>
+
+<section aria-labelledby="code-title">
+  <div class="step">06 / このコードで実装するときにつながる話</div>
+  <h2 id="code-title">各Attentionが作った K・V を、次の生成の回へ渡す。</h2>
+  <figure>
+    <div class="flow">
+      <div class="node saved"><strong>1回目：全文</strong><small>全層・全ヘッドで<br>K・V を保存</small></div>
+      <span class="arrow" aria-hidden="true">→</span>
+      <div class="node active"><strong>2回目：新しい文字</strong><small>過去の K・V を参照<br>新しい K・V を追加</small></div>
+      <span class="arrow" aria-hidden="true">→</span>
+      <div class="node active"><strong>3回目も同じ</strong><small>追加した分も含めて<br>次の回で再利用</small></div>
+    </div>
+    <figcaption>保存するのは <code>W_key</code>・<code>W_value</code> を入力に適用して得た K・V です。層ごと・ヘッドごとに保持します。</figcaption>
+  </figure>
+  <details>
+    <summary>今の実装で気を付ける2点</summary>
+    <p><strong>位置番号を続きから始める。</strong>「日本の首都は」が位置0〜5なら、次の「東」は位置6です。1文字だけ渡したときも位置0に戻さないようにします。</p>
+    <p><strong>入力の上限を超えたら扱いを変える。</strong>今の <code>generate</code> は末尾 <code>context_size</code> 文字へ切り詰め、位置を0から振り直します。このときは位置も前の文脈も変わるため、古い K・V の先頭を削るだけでは同じ結果になりません。現在の動作を保つなら、その窓でキャッシュを作り直す必要があります。</p>
+    <p class="small">上の比較図は上限以内の生成です。推論時の計算を再利用する仕組みなので、学習で重みを更新した後には以前のキャッシュを使い回せません。</p>
+  </details>
+  <p class="source">手元の対応箇所：<a href="../../llms-from-scratch/generate.py">generate.py の generate</a> ／ <a href="../../llms-from-scratch/gpt.py">gpt.py の CausalAttention・GPT・JpCharGPT2</a></p>
+</section>
+
+<footer>
+  <p class="source">KVキャッシュの参照資料：<a href="https://huggingface.co/docs/transformers/main/cache_explanation">Hugging Face「How caching works」</a>: https://huggingface.co/docs/transformers/main/cache_explanation</p>
+  <p class="small">生成の例は計算範囲を比べるための模式図です。学習済みモデルの実測出力・速度測定ではありません。</p>
+</footer>
+</main>
+<script>
+(() => {
+  const sequence = Array.from('日本の首都は東京です');
+  const promptLength = 6;
+  let step = 1;
+  const previous = document.getElementById('prev');
+  const next = document.getElementById('next');
+
+  function fillTokens(id, length, savedLength) {
+    const container = document.getElementById(id);
+    container.replaceChildren();
+    for (let index = 0; index < length; index += 1) {
+      const saved = index < savedLength;
+      const token = document.createElement('span');
+      token.className = saved ? 'token saved' : 'token';
+      const letter = document.createElement('b');
+      letter.textContent = sequence[index];
+      const label = document.createElement('small');
+      label.textContent = saved ? 'K・V 参照' : '計算';
+      token.append(letter, label);
+      container.append(token);
+    }
+  }
+
+  function render() {
+    const length = promptLength + step;
+    const savedLength = step === 0 ? 0 : length - 1;
+    const result = sequence[length];
+    fillTokens('uncached-tokens', length, 0);
+    fillTokens('cached-tokens', length, savedLength);
+    document.getElementById('uncached-count').textContent = String(length);
+    document.getElementById('cached-count').textContent = String(length - savedLength);
+    document.getElementById('stage').textContent = `${step + 1}回目：「${result}」を選ぶ`;
+    document.getElementById('result').textContent = result;
+    document.getElementById('cache-process').textContent = step === 0
+      ? '初回は6文字すべてを計算。各層・各ヘッドの K・V を保存する。'
+      : `「${sequence[length - 1]}」の Q・K・V を作り、Q を全${length}文字の K と照合する。V を集めてFFNへ進み、新しい K・V も保存する。`;
+    document.getElementById('demo-caption').textContent = step === 0
+      ? '初回のprefillでは両方とも全文を処理します。次の回から保存済みの K・V を使えます。'
+      : `橙は各層で処理する位置。緑の${savedLength}文字は K・V を参照しますが、その位置のAttentionやFFNは計算し直しません。`;
+    previous.disabled = step === 0;
+    next.disabled = step === 3;
+  }
+
+  previous.addEventListener('click', () => {
+    step = Math.max(0, step - 1);
+    render();
+  });
+  next.addEventListener('click', () => {
+    step = Math.min(3, step + 1);
+    render();
+  });
+  render();
+})();
+</script>
+</body>
+</html>
