@@ -50,6 +50,7 @@ GPT-2を実装しながらLLMの仕組みを理解し、AIエージェントの�
 - 内包表記はforループに書き下す。型ヒントは残す
 - コードに唐突に出てくる定数や特殊値（例: `EOS_TOKEN = "<|endoftext|>"`）は、本文で説明するだけでなくコード内にもコメントを入れる
 - コメントは「機械学習を知らない人がLLMの仕組みを理解するのに効くもの」だけにする。判断に迷ったら「LLMの理解に効くか」で決める
+- コメントは説明したい行の直前に置く。クラス・関数の先頭には全体の役割だけを書き、特定の行の説明を先頭にまとめない。根拠の数値や観察はコメントでなく `plan.md`・`progress.md` に書く
   - 残す: 学習データの設計意図、語彙・tokenの意味、shapeが表すもの、x/yを1文字ずらす理由、Embeddingの表としての意味、forwardが他の位置を見ていないこと、loss/backward/stepの役割、softmax・temperature・samplingの意味、出力が次の入力になること
   - 削る: Python記法の説明（lambda、`_`、スライス、dtype、tolist）、おまじない（set_num_threads、manual_seed、super().__init__）、命名の由来
   - 削る: device・MPS・GPUなど実行環境の理解向けコメント。実行環境は「一般的なWhy / Why not」を `Config.device` に1行書くだけでよい
