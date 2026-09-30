@@ -4,7 +4,9 @@
 
 ## 現在の作業
 
-Stage 7「KVキャッシュ」まで完了（2026-09-30）。次はStage 8「分類のためのファインチューニング」（起点は `JpCharGPT2`）。その後はStage 9「structured output」、Stage 10「残りの問いを実装なしで調べる」の順に進める（2026-09-30に決定。`plan.md` の「段階」）。
+Stage 8「分類のためのファインチューニング」（起点は `JpCharGPT2`）に着手した（2026-09-30）。分類するデータを `llm-book/wrime-sentiment` に決めて取得した。次は、このデータをモデルに渡す部分と訓練の設計（パディングの長さ・訓練に使う件数・分類ヘッド・どの層を訓練するか）。
+
+Stage 7「KVキャッシュ」までは完了（2026-09-30）。Stage 8の後はStage 9「structured output」、Stage 10「残りの問いを実装なしで調べる」の順に進める（2026-09-30に決定。`plan.md` の「段階」）。
 
 Stage 7は、`generate --kv-cache` の実装と、`kv-cache-results.md` の生成時間・キャッシュの大きさ・プロンプトキャッシュの問いへの考察まで記録した（計画は `kv-cache-plan.md`）。
 
@@ -124,7 +126,8 @@ Stage 5（Multi-head Attention）は、4層・128次元で1ヘッド（`l4h1-d12
 
 ## Stage 8：分類のためのファインチューニング
 
-- [ ] 計画を立てる（分類するデータ・クラス数・どの層を訓練するか）
+- [x] 分類するデータを決めて取得する（`llm-book/wrime-sentiment`、2クラス。`prepare_wrime_data.py` で `data/wrime-sentiment/` に置く、2026-09-30）
+- [ ] 訓練の計画を立てる（パディングの長さ・訓練に使う件数・分類ヘッド・どの層を訓練するか）
 
 ## Stage 9：structured output
 
@@ -305,3 +308,22 @@ Hugging Face上でGPT-2アーキテクチャ（`GPT2LMHeadModel`）の日本語�
 - `visualize-attention` のヒートマップは、先頭に集まるモデルでは先頭列だけが濃くなり残りが読めない。先頭列を除いて色を付け直す表示は未実装
 - hidden stateの「偶然の水準」は学習済みモデルでは層が深いほど上がる（Layer 6で0.70、Layer 12で0.89〜0.94）。後半の層の類似度は偶然の水準との差で読む
 - `hidden_states.json`・`embedding_map.json`・`attention_weights.json` の集計は `tmp/summarize_hidden_states.py`・`tmp/summarize_embedding_map.py`（commitしない）で行い、JSONそのものは読まない。`embedding_map.json` には近傍が入っておらず、HTML側でvectorから計算しているので、記録用の近傍はスクリプトで計算した
+
+### Stage 8：分類するデータの選定（2026-09-30）
+
+日本語の分類データの候補を実際に取得して測り、`llm-book/wrime-sentiment` に決めた。SNS投稿に positive・negative のラベルが付いたデータで、ラベルは読み手3人が付けた感情極性の平均から作られている（中立は除かれている）。計測のスクリプトと出力は `tmp/dataset-survey/`（commitしない）。
+
+| split | 件数 | positive（0） | negative（1） |
+|---|---:|---:|---:|
+| train | 20,149 | 9,496 | 10,653 |
+| validation | 1,608 | 824 | 784 |
+| test | 1,781 | 1,063 | 718 |
+
+- token数（`JpCharGPT2Tokenizer` でencodeした長さ）はtrainで中央値30・99%点138・最大166。本のスパム分類の120トークンと同じ程度の長さ
+- `<|unk|>` を含む投稿は全23,538件のうち53件（0.23%）
+- testは positive が60%。全部 positive と答えても正解率60%になるので、testの正解率はこれを基準に読む
+- 配布元のリポジトリにはloading scriptしかなく、`datasets` を使わないこのプロジェクトでは直接取れない。Hugging Faceが自動変換したparquetが `refs/convert/parquet` ブランチにあるので、そのcommitを固定して `hf_hub_download` で取る
+- 選ばなかった候補
+  - MASSIVE日本語版のscenario分類（アシスタントへの発話を18クラスに分ける。token数の中央値14）: 学習が最も速く、ラベルも明快だった。題材の面白さでWRIMEを選んだ。WRIMEのラベルが曖昧で誤分類を読めないときの乗り換え先
+  - livedoorニュースコーパスのタイトル分類（9クラス）: ラベルが話題ではなく掲載媒体で、似た媒体が複数ある。sports-watch はタイトルの54%に「【Sports Watch】」が付き、答えが漏れている
+  - JGLUEのMARC-ja: Amazonが元データの配布を止めたので入手できない

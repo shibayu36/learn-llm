@@ -224,3 +224,6 @@ tmp/
 
 # 学習の実行結果。結果はprogress.mdに記録する
 llms-from-scratch/runs/
+
+# WRIMEは改変禁止のライセンスなので再配布しない。prepare_wrime_data.py で取り直せる
+llms-from-scratch/data/wrime-sentiment/

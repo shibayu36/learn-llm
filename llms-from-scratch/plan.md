@@ -24,7 +24,7 @@
 | 第4章 4.7 テキストを生成する | Stage 2。本の `generate_text_simple`（greedy）は作らず、最初から `generate`（`temperature=0` でgreedy）にする |
 | 第5章 ラベルなしデータでの事前学習（5.1 評価、5.2 訓練、5.3 デコーディング戦略、5.4 保存と読み込み） | Stage 2〜3。損失関数・訓練ループ・temperature・保存。5.3.2 top-kは学習後の生成を見て必要なら足す |
 | 第5章 5.5 OpenAIの重みを読み込む | Stage 6。OpenAIの英語GPT-2は語彙が違って生成が読めないので、代わりに日本語1文字単位の `ku-nlp/gpt2-small-japanese-char`（12層・12ヘッド・768次元、171GBで事前学習）を `JpCharGPT2` に読み込む。作り方は `pretrained-model-plan.md` |
-| 第6章 分類のためのファインチューニング | Stage 8。起点は `JpCharGPT2` |
+| 第6章 分類のためのファインチューニング | Stage 8。起点は `JpCharGPT2`。本のスパム分類の代わりに、日本語のSNS投稿をポジティブ・ネガティブの2クラスに分類する（`llm-book/wrime-sentiment`） |
 | 第7章 指示に従うためのファインチューニング | やらない（必要になったら再検討） |
 | 付録D 訓練ループの高度なテクニック（warmup、cosine減衰、勾配クリッピング） | やらない（必要になったら再検討） |
 | 付録E LoRA | やらない（必要になったら再検討） |
@@ -50,6 +50,9 @@
 - ku-nlpのtokenizerは、公式の `vocab.json` を復号して `CharTokenizer` の語彙にする
 - `CharTokenizer` を継承した `JpCharGPT2Tokenizer` で、改行と半角スペースを `encode` の前に取り除く。このモデルは `<|unk|>` を文書の境界として学習していて、文中の改行が `<|unk|>` になると直後の予測が外れるため
 - 文書やpromptの先頭に `<s>` は付けない。改善が0.01程度で、付けると可視化の対象位置がずれるため
+- 分類のデータは、本のスパム分類（英語のSMS）ではなく `llm-book/wrime-sentiment` にする。日本語のSNS投稿に positive（0）・negative（1）のラベルが付いた2クラスのデータで、train 20,149・validation 1,608・test 1,781件。起点の `JpCharGPT2` が日本語のモデルで、分類結果を自分の目で読めるようにするため。候補の比較は `progress.md`
+- 分類のデータは、配布されているparquetを加工せず `data/wrime-sentiment/` に置く（`prepare_wrime_data.py`）。訓練・検証・テストの分割も配布元のものを使う。WRIMEは改変禁止のライセンス（CC BY-NC-ND 4.0）なので、データはcommitしない
+- 本のアンダーサンプリングは行わない。本はスパムが13%しかないので件数をそろえるが、このデータはtrainで positive 47%・negative 53% とほぼ均衡しているため
 
 ## 実行条件
 
@@ -97,8 +100,9 @@ llms-from-scratch/
   evaluation-results.md  評価結果。runごとの条件・loss・生成・観察
   kv-cache-results.md    KVキャッシュあり・なしの生成時間とキャッシュの大きさ（Stage 7）
   docs/            用語集など学習用の資料
-  data/            固定した日本語データと評価prompt（evaluation-prompts.json）
+  data/            固定した日本語データと評価prompt（evaluation-prompts.json）。分類のデータ（wrime-sentiment/）はcommitしない
   prepare_data.py  データ取得
+  prepare_wrime_data.py  分類のデータの取得（Stage 8）
 ```
 
 本は章ごとにNotebookで進めるが、ここでは部品をモジュールに分け、`main.py` 1本を実行入口にする。各節の動作確認は `main.py` に書き、次の段階へ進むときに不要な確認コードは消す。
@@ -161,7 +165,9 @@ Stage 3以降の `main.py` は次の3つのサブコマンドを持つ。
 
 ### Stage 8：分類のためのファインチューニング（本 第6章）
 
-`JpCharGPT2` を起点に、日本語の文章を分類するモデルへファインチューニングする（2026-09-30に決定）。目的は、「fine-tuningでは何が変わっているのか」に、ファインチューニング前後のモデルを比べて答えること。分類するデータ・クラス数・どの層を訓練するかは着手時に決める。
+`JpCharGPT2` を起点に、日本語の文章を分類するモデルへファインチューニングする（2026-09-30に決定）。目的は、「fine-tuningでは何が変わっているのか」に、ファインチューニング前後のモデルを比べて答えること。
+
+分類するデータは `llm-book/wrime-sentiment`（SNS投稿のポジティブ・ネガティブ、2クラス）に決めた（2026-09-30）。パディングの長さ・訓練に使う件数・どの層を訓練するかは、訓練を設計するときに決める。
 
 ### Stage 9：structured output（本にはない）
 
