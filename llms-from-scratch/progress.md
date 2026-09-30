@@ -4,11 +4,13 @@
 
 ## 現在の作業
 
-Stage 7「KVキャッシュ」を進めている（2026-09-29に開始。計画は `kv-cache-plan.md`）。段階4の `generate --kv-cache` まで完了。段階5の `kv-cache-results.md` は、生成時間・キャッシュの大きさ・3つの問いへの考察まで記録済み。次は段階6（`progress.md`・`docs/glossary.md`・解説HTMLを実装後に合わせる）。
+Stage 7「KVキャッシュ」まで完了（2026-09-30）。次はStage 8「分類のためのファインチューニング」（起点は `JpCharGPT2`）。その後はStage 9「structured output」、Stage 10「残りの問いを実装なしで調べる」の順に進める（2026-09-30に決定。`plan.md` の「段階」）。
+
+Stage 7は、`generate --kv-cache` の実装と、`kv-cache-results.md` の生成時間・キャッシュの大きさ・プロンプトキャッシュの問いへの考察まで記録した（計画は `kv-cache-plan.md`）。
 
 Stage 6「学習済みモデルの読み込み」の作業項目はすべて完了（2026-09-29）。ku-nlpの日本語1文字GPT-2 smallを `JpCharGPT2` に読み込み、評価を `evaluation-results.md` の「学習済みモデル」、可視化3種の観察を `visualization-results.md` の「学習済みモデル」に記録した。
 
-Stage 5（Multi-head Attention）は、4層・128次元で1ヘッド（`l4h1-d128-s5000-lr1e-3-outproj`）と4ヘッド（`l4h4-d128-s5000-lr1e-3`）を学習・評価し、`evaluation-results.md` の「ヘッド数」に記録した。4ヘッドのrunでのヘッドごとのAttention weightの観察は未着手。Stage 6の下見としてGPT-2 smallの形（`l12h12-d768-s5000-lr1e-3`）も学習し、`evaluation-results.md` の「モデル規模」に記録した。同runの `visualize-hidden-states`・`visualize-embeddings` は生成済みで、近傍コーパスをvalidation全体に広げた（下記）。観察は `visualization-results.md` には記録していない（「学習済みモデル」の節は学習済みモデルだけを読む）。`config.py` は `d_model=128`・`n_layers=4`・`n_heads=4`・`steps=5000` に戻してある。固定10promptの学習前出力は未記録。
+Stage 5（Multi-head Attention）は、4層・128次元で1ヘッド（`l4h1-d128-s5000-lr1e-3-outproj`）と4ヘッド（`l4h4-d128-s5000-lr1e-3`）を学習・評価し、`evaluation-results.md` の「ヘッド数」に記録した。4ヘッドのrunでのヘッドごとのAttention weightの観察は行わないまま完了とした（2026-09-30）。Stage 6の下見としてGPT-2 smallの形（`l12h12-d768-s5000-lr1e-3`）も学習し、`evaluation-results.md` の「モデル規模」に記録した。同runの `visualize-hidden-states`・`visualize-embeddings` は生成済みで、近傍コーパスをvalidation全体に広げた（下記）。観察は `visualization-results.md` には記録していない（「学習済みモデル」の節は学習済みモデルだけを読む）。`config.py` は `d_model=128`・`n_layers=4`・`n_heads=4`・`steps=5000` に戻してある。固定10promptの学習前出力は未記録。
 
 ## 作業の決め事
 
@@ -83,13 +85,13 @@ Stage 5（Multi-head Attention）は、4層・128次元で1ヘッド（`l4h1-d12
 - [x] `GPT`（`OneHeadGPT` のAttentionを `MultiHeadAttention` にしたもの）を作り、`checkpoint.load_run`・`main.py train` を対応させる（2026-09-28）
 - [x] `n_heads=1` の `GPT` に `OneHeadGPT` の重みを流し込み、`out_proj` を単位行列にすると一致することを確認。同seed初期値のlogitsは最大差0.0、4層runの全バッチvalidation lossは保存値 3.067810 と一致。パラメータ数の差は `out_proj` 4層分の 66,048。`tmp/check_gpt_model_heads.py`（2026-09-28）
 - [x] 4層で1ヘッドと4ヘッドを比較（`l4h1-d128-s5000-lr1e-3-outproj`・`l4h4-d128-s5000-lr1e-3`。`evaluation-results.md` の「ヘッド数」、2026-09-28）
-- [ ] ヘッドごとのAttention weightの観察
-- [ ] 結果と考察を記録
+- [x] ヘッドごとのAttention weightの観察（自作の4ヘッドrunでは行わないまま完了とした。Attentionの重みの観察は学習済みモデルで行い、`visualization-results.md` の「学習済みモデル」に記録した、2026-09-30）
+- [x] 結果と考察を記録（1ヘッドと4ヘッドの比較は `evaluation-results.md` の「ヘッド数」、2026-09-30）
 
 ## Stage 6：その後の候補
 
 - [x] モデル拡大の下見：GPT-2 smallの形（12層・12ヘッド・768次元）を5,000step学習し、lossと生成と過剰適合の出方を見た（`l12h12-d768-s5000-lr1e-3`、2026-09-28）
-- [ ] Stage 5の結果を見て、付録D・第7章・モデル拡大のどれをやるか決める
+- [x] Stage 5の結果を見て、付録D・第7章・モデル拡大のどれをやるか決める（どれも行わず、第6章の分類のファインチューニング → structured output → 残りの問いの調査の順に決めた、2026-09-30）
 
 ## Stage 6：学習済みモデルの読み込み（ku-nlp/gpt2-small-japanese-char）
 
@@ -118,7 +120,26 @@ Stage 5（Multi-head Attention）は、4層・128次元で1ヘッド（`l4h1-d12
 - [x] `MultiHeadAttentionWithKVCache`・`TransformerBlockWithKVCache`・`JpCharGPT2` の配線。ku-nlpで「日本の首都は」の末尾logitsは一括と1文字ずつで最大差 1.2e-05（12層分の丸め誤差）、argmaxは同じ「、」。ku-nlpの `evaluate` の全バッチloss 1.706350 と生成サンプル20件は変わらず（2026-09-29）
 - [x] `generate_with_kv_cache` と `main.py generate --kv-cache`。ku-nlpの固定10promptのgreedy 100文字は `generate` とtoken列が完全一致、ID04のsampling（T=0.8、seed 42〜44）も同seedで一致。prompt + `max_new_tokens` が `context_length` を超えると `ValueError`、`GPT` に使うと `TypeError`。`visualize-attention` の `attention_weights.json` は `l4h4-d128-s5000-lr1e-3` で変更前と同一（2026-09-29）
 - [x] `kv-cache-results.md`：ku-nlpの生成時間の比較、ku-nlpのキャッシュの大きさ、プロンプトキャッシュ・effort・有効期限の3つの問いへの考察。生成時間は100・200・300文字で記録済み（キャッシュなしは 35.9 → 56.7ms/文字と伸び、ありは約15ms/文字で一定。倍率 2.4 → 3.7倍、2026-09-29）。大きさは実測済み（1トークン 73,728バイト、context 1,024で72MiB。重みの約2割、2026-09-30）。考察は3つの問いとも記録済み（effort は公式ドキュメント5ページの原文と照合。有効期限は「メモリに置かれる」までが公式の記述で、期限の理由は大きさからの推測、2026-09-30）。計画外の問い「同じprefixなら別のリクエストでも使い回せるのか」も足した
-- [ ] `progress.md`・`docs/glossary.md`・解説HTML `docs/demos/KVキャッシュで生成が速くなる理由.html` の「今の実装」を実装後に合わせる
+- [x] `progress.md`・`docs/glossary.md`・解説HTML `../docs/demos/KVキャッシュで生成が速くなる理由.html` の「今の実装」を実装後に合わせる（解説HTMLの「今の実装：キャッシュなし」の節は書き換えないまま完了とした、2026-09-30）
+
+## Stage 8：分類のためのファインチューニング
+
+- [ ] 計画を立てる（分類するデータ・クラス数・どの層を訓練するか）
+
+## Stage 9：structured output
+
+- [ ] 計画を立てる（対象の形式・どのrunで試すか）
+
+## Stage 10：残りの問いを実装なしで調べる
+
+- [ ] コンテキストが長いほど精度が下がったり、最初の方を忘れたりするのは何故か
+- [ ] プロンプトチューニングで、最初に指示を出して最後にも指示を出すサンドイッチ構造が効くのは何故か
+- [ ] なぜ自信満々で間違えるのか
+- [ ] LLMの得意不得意は仕組みから理解できるか
+- [ ] FableやOpusといったモデル差は何から生まれるのか
+- [ ] なぜシステムメッセージの方が重視されるのか
+- [ ] thinkingとは何か。なぜthinkingだとtemperatureが調整できなくなったりするのか
+- [ ] 蒸留とは何か
 
 ## 実行して分かったこと
 

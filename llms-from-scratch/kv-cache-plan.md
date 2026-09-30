@@ -65,4 +65,4 @@ Causal maskの切り出しは、キャッシュなし（`start=0`）なら今ま
 - `MultiHeadAttention` を分割方式（1つの `W_query` を `view` で切る形）に変えると、キーと値はヘッドごとでなく `[B, H, T, head_dim]` の1テンソルになり、`blocks[層][ヘッド]` の入れ子が崩れる。そのときは `KVCache` を層ごと1テンソルにする
 - `context_length` を超えて生成し続けたいなら、学習済みの絶対位置埋め込みでは古いキーと値の先頭を削っても位置がずれて結果が変わる。相対位置（RoPEなど）に変えない限り作り直ししかない
 - 長さの違う複数promptをバッチで生成するなら、Causal maskのほかにpaddingのmaskが要る。`append` は全バッチ同じ長さを仮定している
-- fine-tuning（第7章）は訓練経路（`cache=None`）だけを使うので影響しない
+- fine-tuning（第6章）は訓練経路（`cache=None`）だけを使うので影響しない
