@@ -24,14 +24,18 @@ class SelfAttention_v1(nn.Module):
 
 
 class CausalAttention(nn.Module):
-    def __init__(self, d_in: int, d_out: int, context_length: int) -> None:
+    def __init__(
+        self, d_in: int, d_out: int, context_length: int, qkv_bias: bool = False
+    ) -> None:
         super().__init__()
         # 入力xをクエリ・キー・値の3種類のベクトルに射影する訓練可能な重み行列。
         # 情報検索の比喩で、クエリはいま注目しているトークン、キーはクエリと照合する
         # インデックス、値は取り出される実際の内容にあたる。
-        self.W_query = nn.Linear(d_in, d_out, bias=False)
-        self.W_key = nn.Linear(d_in, d_out, bias=False)
-        self.W_value = nn.Linear(d_in, d_out, bias=False)
+        # qkv_bias は射影にバイアスベクトルを足すかどうか。性能に寄与しないので現代の
+        # LLMは持たないのが標準。GPT-2の公開重みを読み込むときだけ形を合わせてTrueにする
+        self.W_query = nn.Linear(d_in, d_out, bias=qkv_bias)
+        self.W_key = nn.Linear(d_in, d_out, bias=qkv_bias)
+        self.W_value = nn.Linear(d_in, d_out, bias=qkv_bias)
         # 各位置が「どの位置を見てはいけないか」を表す表。行が今いる位置、列が参照先
         # の位置で、1が未来（見てはいけない）、0が自分と過去（見てよい）。
         # 「日本の首」の4文字なら次の表になる。
@@ -46,10 +50,11 @@ class CausalAttention(nn.Module):
         # この形になる。forwardでは1の場所のスコアを -inf にしてAttentionの重みを
         # 0にする。実際の表は context_length × context_length で、入力の長さ分だけ
         # 切り出す。訓練で更新する値ではなく固定の表なので、parameterではなくbufferに
-        # 登録する
+        # 登録する。
         self.register_buffer(
             "mask",
             torch.triu(torch.ones(context_length, context_length), diagonal=1),
+            persistent=False, # context_length から作り直せるのでmodel.pt の保存対象からも外す
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -99,14 +104,23 @@ class CausalAttention(nn.Module):
 # 本の 3.6.2 やGPT-2は、1つの大きな W_query で全ヘッド分を計算してから切り分ける。
 # 結果は同じで演算の呼び出し回数が減るだけなので、ここでは構造が読める並べる形にする
 class MultiHeadAttention(nn.Module):
-    def __init__(self, d_in: int, d_out: int, context_length: int, n_heads: int) -> None:
+    def __init__(
+        self,
+        d_in: int,
+        d_out: int,
+        context_length: int,
+        n_heads: int,
+        qkv_bias: bool = False,
+    ) -> None:
         super().__init__()
         if d_out % n_heads != 0:
             raise ValueError(f"d_out={d_out} は n_heads={n_heads} で割り切れない")
         head_dim = d_out // n_heads
         heads: list[nn.Module] = []
         for _ in range(n_heads):
-            heads.append(CausalAttention(d_in, head_dim, context_length))
+            heads.append(
+                CausalAttention(d_in, head_dim, context_length, qkv_bias=qkv_bias)
+            )
         # nn.ModuleList はモジュールを入れるリスト。素のlistに入れるとPyTorchが中の
         # パラメータを見つけられず、学習も保存もされない
         self.heads = nn.ModuleList(heads)
@@ -298,6 +312,42 @@ class GPT(nn.Module):
         self.trf_blocks = nn.Sequential(*blocks)
         self.final_norm = LayerNorm(config.d_model)
         self.out_head = nn.Linear(config.d_model, vocab_size, bias=False)
+
+    def forward(self, in_idx: torch.Tensor) -> torch.Tensor:
+        seq_len = in_idx.shape[1]
+        tok_embeds = self.tok_emb(in_idx)
+        pos_embeds = self.pos_emb(torch.arange(seq_len, device=in_idx.device))
+        x = tok_embeds + pos_embeds
+        x = self.trf_blocks(x)
+        x = self.final_norm(x)
+        logits = self.out_head(x)
+        return logits
+
+
+# 公開されている事前学習済みの日本語GPT-2 ku-nlp/gpt2-small-japanese-char を読み込む
+# ためのモデル。1文字を1トークンにするので、自作の CharTokenizer で扱える。
+# 構造は GPT と同じ
+class JpCharGPT2(nn.Module):
+    def __init__(self, vocab_size: int, config: Config) -> None:
+        super().__init__()
+        self.tok_emb = nn.Embedding(vocab_size, config.d_model)
+        self.pos_emb = nn.Embedding(config.context_length, config.d_model)
+        blocks: list[nn.Module] = []
+        for _ in range(config.n_layers):
+            att = MultiHeadAttention(
+                config.d_model,
+                config.d_model,
+                config.context_length,
+                config.n_heads,
+                qkv_bias=True,  # GPT-2のQ/K/Vの重みにはバイアスベクトルがある
+            )
+            blocks.append(TransformerBlock(config, att))
+        self.trf_blocks = nn.Sequential(*blocks)
+        self.final_norm = LayerNorm(config.d_model)
+        self.out_head = nn.Linear(config.d_model, vocab_size, bias=False)
+        # GPT-2は出力ヘッドにトークン埋め込みと同じ行列を使う（重み共有）。
+        # 入口の「トークン → ベクトル」の表を、出口の「ベクトル → 各トークンのlogit」にも使う
+        self.out_head.weight = self.tok_emb.weight
 
     def forward(self, in_idx: torch.Tensor) -> torch.Tensor:
         seq_len = in_idx.shape[1]

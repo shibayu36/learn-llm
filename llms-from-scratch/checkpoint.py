@@ -5,8 +5,8 @@ import torch
 import torch.nn as nn
 
 from config import Config
-from gpt import OneLayerOneHeadGPT, OneHeadGPT, GPT
-from tokenizer import CharTokenizer
+from gpt import OneLayerOneHeadGPT, OneHeadGPT, GPT, JpCharGPT2
+from tokenizer import CharTokenizer, JpCharGPT2Tokenizer
 
 # 本の 5.4「モデルの重みの保存と読み込み」に相当する。学習済みのモデル・設定・語彙を
 # 1つのディレクトリにまとめて保存し、学習をやり直さずに読み込めるようにする
@@ -33,7 +33,11 @@ def save_run(run_dir: Path, model: nn.Module, config: Config, tokenizer: CharTok
 def load_run(run_dir: Path) -> tuple[nn.Module, Config, CharTokenizer]:
     data = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
     config = Config.from_dict(data)
+
     tokenizer = CharTokenizer.load(run_dir / "vocab.json")
+    # 学習済みの日本語GPT-2だけencodeの規則が違う
+    if data["model"] == "JpCharGPT2":
+        tokenizer = JpCharGPT2Tokenizer.load(run_dir / "vocab.json")
 
     if data["model"] == "OneLayerOneHeadGPT":
         model = OneLayerOneHeadGPT(tokenizer.vocab_size, config)
@@ -41,6 +45,8 @@ def load_run(run_dir: Path) -> tuple[nn.Module, Config, CharTokenizer]:
         model = OneHeadGPT(tokenizer.vocab_size, config)
     elif data["model"] == "GPT":
         model = GPT(tokenizer.vocab_size, config)
+    elif data["model"] == "JpCharGPT2":
+        model = JpCharGPT2(tokenizer.vocab_size, config)
     else:
         raise ValueError(f"未対応のモデル: {data['model']}")
 
