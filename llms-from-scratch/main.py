@@ -9,7 +9,12 @@ from checkpoint import load_run, save_run
 from config import Config
 from dataset import create_dataloader, join_texts_with_eos, load_texts
 from evaluate import MAX_NEW_TOKENS, evaluate_validation, generate_samples
-from generate import generate, text_to_token_ids, token_ids_to_text
+from generate import (
+    generate,
+    generate_with_kv_cache,
+    text_to_token_ids,
+    token_ids_to_text,
+)
 from gpt import GPT
 from plot import save_loss_plot
 from tokenizer import CharTokenizer
@@ -110,12 +115,22 @@ def run_train(config: Config, run_name: str) -> None:
     print("保存先:", run_dir)
 
 
-def run_generate(run_name: str, prompt: str, temperature: float, max_new_tokens: int) -> None:
+def run_generate(
+    run_name: str,
+    prompt: str,
+    temperature: float,
+    max_new_tokens: int,
+    use_kv_cache: bool,
+) -> None:
     model, config, tokenizer = load_run(RUNS_DIR / run_name)
     model.eval()
     context_ids = text_to_token_ids(prompt, tokenizer)
     start_time = time.perf_counter()
-    token_ids = generate(
+    if use_kv_cache:
+        generate_function = generate_with_kv_cache
+    else:
+        generate_function = generate
+    token_ids = generate_function(
         model,
         context_ids,
         max_new_tokens=max_new_tokens,
@@ -268,6 +283,8 @@ def main() -> None:
     generate_parser.add_argument("--run-name", default="l1h1")
     generate_parser.add_argument("--temperature", type=float, default=0.0)
     generate_parser.add_argument("--max-new-tokens", type=int, default=50)
+    # action="store_true" は、書けば True・書かなければ False になるフラグ
+    generate_parser.add_argument("--kv-cache", action="store_true")
 
     evaluate_parser = subparsers.add_parser("evaluate")
     evaluate_parser.add_argument("--run-name", default="l1h1")
@@ -286,7 +303,9 @@ def main() -> None:
     if args.command == "train":
         run_train(Config(), args.run_name)
     elif args.command == "generate":
-        run_generate(args.run_name, args.prompt, args.temperature, args.max_new_tokens)
+        run_generate(
+            args.run_name, args.prompt, args.temperature, args.max_new_tokens, args.kv_cache
+        )
     elif args.command == "evaluate":
         run_evaluate(args.run_name)
     elif args.command == "visualize-embeddings":

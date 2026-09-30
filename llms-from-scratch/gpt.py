@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 
 from config import Config
+from kv_cache import HeadKVCache, KVCache
 
 class SelfAttention_v1(nn.Module):
     def __init__(self, d_in: int, d_out: int) -> None:
@@ -324,6 +325,90 @@ class GPT(nn.Module):
         return logits
 
 
+# CausalAttention にKVキャッシュを足したもの。重みとCausal maskの表は CausalAttention と
+# 同じで、forward だけが違う。
+# cache には、そこまでに入れたトークンのK・Vが溜まっている。x はまだ入れていない続きの
+# トークンで、forward は x の分のコンテキストベクトルだけを返す
+class CausalAttentionWithKVCache(CausalAttention):
+    def forward(self, x: torch.Tensor, cache: HeadKVCache) -> torch.Tensor:
+        num_new = x.shape[1]
+        queries = self.W_query(x)
+        keys = self.W_key(x)
+        values = self.W_value(x)
+
+        # 今回のトークンが全体の何番目から始まるか。キャッシュが空なら0
+        start = cache.num_tokens()
+        # 過去のトークンのK・Vは計算し直さず、キャッシュから取り出して今回の分を後ろにつなぐ
+        keys, values = cache.append(keys, values)
+
+        # attn_scores[b, i, j] は今回のi番目のトークン（全体では位置 start+i）のQと
+        # 位置jのKの類似度。Qは新しいトークンの分だけで、Kは過去と今回の全トークン分。
+        # [B, T_new, D] @ [B, D, T_all] → [B, T_new, T_all]（T_all = start + T_new）
+        attn_scores = queries @ keys.transpose(1, 2)
+        # Causal maskの表から切り出すのは「今回のトークンの行」と「今回までのトークンの列」。
+        # 「日本の首」を一度に入れれば4×4の表全体。「日本の」がキャッシュにあって「首」だけを
+        # 入れたとき（start=3）は位置3「首」の1行 [0, 0, 0, 0] で、過去のトークンは全部見てよい
+        attn_scores = attn_scores.masked_fill(
+            self.mask.bool()[start : start + num_new, : start + num_new], -torch.inf
+        )
+        attn_weights = torch.softmax(
+            attn_scores / keys.shape[-1] ** 0.5, dim=-1
+        )
+        # [B, T_new, T_all] @ [B, T_all, D] → [B, T_new, D]
+        context_vec = attn_weights @ values
+        return context_vec
+
+
+# MultiHeadAttention にKVキャッシュを足したもの。構造は MultiHeadAttention と同じで、
+# ヘッドが CausalAttentionWithKVCache になり、forward が cache をヘッドごとに配る。
+# cache はヘッドごとの HeadKVCache を並べたリストで、cache[i] が heads[i] の分
+class MultiHeadAttentionWithKVCache(nn.Module):
+    def __init__(
+        self,
+        d_in: int,
+        d_out: int,
+        context_length: int,
+        n_heads: int,
+        qkv_bias: bool = False,
+    ) -> None:
+        super().__init__()
+        if d_out % n_heads != 0:
+            raise ValueError(f"d_out={d_out} は n_heads={n_heads} で割り切れない")
+        head_dim = d_out // n_heads
+        heads: list[nn.Module] = []
+        for _ in range(n_heads):
+            heads.append(
+                CausalAttentionWithKVCache(
+                    d_in, head_dim, context_length, qkv_bias=qkv_bias
+                )
+            )
+        self.heads = nn.ModuleList(heads)
+        self.out_proj = nn.Linear(d_out, d_out)
+
+    def forward(self, x: torch.Tensor, cache: list[HeadKVCache]) -> torch.Tensor:
+        outputs: list[torch.Tensor] = []
+        for i, head in enumerate(self.heads):
+            outputs.append(head(x, cache[i]))
+        context_vec = torch.cat(outputs, dim=-1)
+        return self.out_proj(context_vec)
+
+
+# TransformerBlock にKVキャッシュを足したもの。部品は TransformerBlock と同じで、
+# forward が cache を Attention（MultiHeadAttentionWithKVCache）に渡すだけが違う
+class TransformerBlockWithKVCache(TransformerBlock):
+    def forward(self, x: torch.Tensor, cache: list[HeadKVCache]) -> torch.Tensor:
+        shortcut = x
+        x = self.norm1(x)
+        x = self.att(x, cache)
+        x = x + shortcut
+
+        shortcut = x
+        x = self.norm2(x)
+        x = self.ff(x)
+        x = x + shortcut
+        return x
+
+
 # 公開されている事前学習済みの日本語GPT-2 ku-nlp/gpt2-small-japanese-char を読み込む
 # ためのモデル。1文字を1トークンにするので、自作の CharTokenizer で扱える。
 # 構造は GPT と同じ
@@ -334,14 +419,14 @@ class JpCharGPT2(nn.Module):
         self.pos_emb = nn.Embedding(config.context_length, config.d_model)
         blocks: list[nn.Module] = []
         for _ in range(config.n_layers):
-            att = MultiHeadAttention(
+            att = MultiHeadAttentionWithKVCache(
                 config.d_model,
                 config.d_model,
                 config.context_length,
                 config.n_heads,
                 qkv_bias=True,  # GPT-2のQ/K/Vの重みにはバイアスベクトルがある
             )
-            blocks.append(TransformerBlock(config, att))
+            blocks.append(TransformerBlockWithKVCache(config, att))
         self.trf_blocks = nn.Sequential(*blocks)
         self.final_norm = LayerNorm(config.d_model)
         self.out_head = nn.Linear(config.d_model, vocab_size, bias=False)
@@ -349,12 +434,27 @@ class JpCharGPT2(nn.Module):
         # 入口の「トークン → ベクトル」の表を、出口の「ベクトル → 各トークンのlogit」にも使う
         self.out_head.weight = self.tok_emb.weight
 
-    def forward(self, in_idx: torch.Tensor) -> torch.Tensor:
-        seq_len = in_idx.shape[1]
+    # cache を渡すとき、in_idx は「キャッシュにある文字列の続き」だけで、返す logits も
+    # その分だけになる
+    def forward(
+        self, in_idx: torch.Tensor, cache: KVCache | None = None
+    ) -> torch.Tensor:
+        # cache を渡されなければ、この forward の中だけで使う空のキャッシュを作る。
+        # in_idx の全文字を一度に入れるので start=0 になり、計算はキャッシュなしと同じ
+        if cache is None:
+            cache = KVCache(self)
+        num_new = in_idx.shape[1]
+        # 今回の文字が全体の何文字目から始まるか
+        start = cache.num_tokens()
         tok_embeds = self.tok_emb(in_idx)
-        pos_embeds = self.pos_emb(torch.arange(seq_len, device=in_idx.device))
+        # 位置埋め込みは全体での位置で引く。「日本の」がキャッシュにあって「首」だけを
+        # 入れたときは、位置0ではなく位置3の埋め込みを足す
+        pos_embeds = self.pos_emb(
+            torch.arange(start, start + num_new, device=in_idx.device)
+        )
         x = tok_embeds + pos_embeds
-        x = self.trf_blocks(x)
+        for layer, block in enumerate(self.trf_blocks):
+            x = block(x, cache.blocks[layer])
         x = self.final_norm(x)
         logits = self.out_head(x)
         return logits
