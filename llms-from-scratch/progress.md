@@ -4,7 +4,7 @@
 
 ## 現在の作業
 
-Stage 7「KVキャッシュ」を進めている（2026-09-29に開始。計画は `kv-cache-plan.md`）。段階4の `generate --kv-cache` まで完了。段階5の `kv-cache-results.md` は、生成時間・キャッシュの大きさ・プロンプトキャッシュと effort の問いまで記録済み。次は有効期限の問いへの考察。
+Stage 7「KVキャッシュ」を進めている（2026-09-29に開始。計画は `kv-cache-plan.md`）。段階4の `generate --kv-cache` まで完了。段階5の `kv-cache-results.md` は、生成時間・キャッシュの大きさ・3つの問いへの考察まで記録済み。次は段階6（`progress.md`・`docs/glossary.md`・解説HTMLを実装後に合わせる）。
 
 Stage 6「学習済みモデルの読み込み」の作業項目はすべて完了（2026-09-29）。ku-nlpの日本語1文字GPT-2 smallを `JpCharGPT2` に読み込み、評価を `evaluation-results.md` の「学習済みモデル」、可視化3種の観察を `visualization-results.md` の「学習済みモデル」に記録した。
 
@@ -117,7 +117,7 @@ Stage 5（Multi-head Attention）は、4層・128次元で1ヘッド（`l4h1-d12
 - [x] `kv_cache.py`（`HeadKVCache`・`KVCache`）と `CausalAttentionWithKVCache.forward(x, cache)`。ku-nlpの第1層ヘッド0で「日本の首都は」を空のキャッシュに一括で通した出力は元の `CausalAttention.forward` と完全一致（差0）、1文字ずつ通した出力との最大差 4.2e-07（float32の丸め誤差の範囲）。理解用の `CausalAttention`・`MultiHeadAttention`・`TransformerBlock` は変えていないので、`GPT` の `l4h4-d128-s5000-lr1e-3` は `evaluate` の全バッチloss 3.094512 も `visualize-attention` の出力も変わらず（2026-09-29）
 - [x] `MultiHeadAttentionWithKVCache`・`TransformerBlockWithKVCache`・`JpCharGPT2` の配線。ku-nlpで「日本の首都は」の末尾logitsは一括と1文字ずつで最大差 1.2e-05（12層分の丸め誤差）、argmaxは同じ「、」。ku-nlpの `evaluate` の全バッチloss 1.706350 と生成サンプル20件は変わらず（2026-09-29）
 - [x] `generate_with_kv_cache` と `main.py generate --kv-cache`。ku-nlpの固定10promptのgreedy 100文字は `generate` とtoken列が完全一致、ID04のsampling（T=0.8、seed 42〜44）も同seedで一致。prompt + `max_new_tokens` が `context_length` を超えると `ValueError`、`GPT` に使うと `TypeError`。`visualize-attention` の `attention_weights.json` は `l4h4-d128-s5000-lr1e-3` で変更前と同一（2026-09-29）
-- [ ] `kv-cache-results.md`：ku-nlpの生成時間の比較、ku-nlpのキャッシュの大きさ、プロンプトキャッシュ・effort・有効期限の3つの問いへの考察。生成時間は100・200・300文字で記録済み（キャッシュなしは 35.9 → 56.7ms/文字と伸び、ありは約15ms/文字で一定。倍率 2.4 → 3.7倍、2026-09-29）。大きさは実測済み（1トークン 73,728バイト、context 1,024で72MiB。重みの約2割、2026-09-30）。考察はプロンプトキャッシュと effort の問いまで記録済みで（effort は公式ドキュメント5ページの原文と照合、2026-09-30）、有効期限は未着手
+- [x] `kv-cache-results.md`：ku-nlpの生成時間の比較、ku-nlpのキャッシュの大きさ、プロンプトキャッシュ・effort・有効期限の3つの問いへの考察。生成時間は100・200・300文字で記録済み（キャッシュなしは 35.9 → 56.7ms/文字と伸び、ありは約15ms/文字で一定。倍率 2.4 → 3.7倍、2026-09-29）。大きさは実測済み（1トークン 73,728バイト、context 1,024で72MiB。重みの約2割、2026-09-30）。考察は3つの問いとも記録済み（effort は公式ドキュメント5ページの原文と照合。有効期限は「メモリに置かれる」までが公式の記述で、期限の理由は大きさからの推測、2026-09-30）。計画外の問い「同じprefixなら別のリクエストでも使い回せるのか」も足した
 - [ ] `progress.md`・`docs/glossary.md`・解説HTML `docs/demos/KVキャッシュで生成が速くなる理由.html` の「今の実装」を実装後に合わせる
 
 ## 実行して分かったこと

@@ -56,7 +56,7 @@ Llama 3.1 405B（126層・128ヘッド・head_dim 128）をこの実装のまま
 
 Llama 3.1 405B は、K・Vを8ヘッド分だけ持つGQAとBF16の推論で減らしている（[The Llama 3 Herd of Models](https://arxiv.org/abs/2407.21783) の Section 3.2、Table 3）。この構成値から計算すると 126 × 8 × 2 × 128 × 2バイト ≒ 516KB/トークンで、それでも100万トークンで約500GBになる。
 
-## 3つの問いへの考察
+## プロンプトキャッシュの問いへの考察
 
 ### プロンプトキャッシュは、共通の先頭部分について全層のK・Vを保存している
 
@@ -77,3 +77,21 @@ Llama 3.1 405B は、K・Vを8ヘッド分だけ持つGQAとBF16の推論で減�
 壊さずにeffortを変える方法もある。対応しているモデルには、「ここからeffortをlowにする」という設定変更を会話の末尾に足す [per-message effort](https://platform.claude.com/docs/en/build-with-claude/effort#per-message-effort-beta) がある。あるトークンのK・Vは自分より前のトークンだけで決まるので、末尾に何を足してもそれより前のK・Vはそのまま使える。キャッシュが壊れる原因はeffortそのものではなく、保存済みの部分より前の入力が変わることにある。
 
 effortの指定が入力に入るだけで振る舞いが変わるのは、そう学習させているから。[Anthropicのブログ](https://www.claude.com/blog/claude-model-and-effort-level-in-claude-code)は「The model was trained to understand how to behave at each effort level」と説明している。会話の途中で切り替えるには、さらに「最後に出てきた指定に従う」ことも学習させる必要がある。Claudeがどう学習させているかは公開されていないが、Qwen3は公開している。Qwen3はユーザーメッセージに `/think`・`/no_think` と書くとターンごとにthinkingの有無を切り替えられる。事前学習のあとのファインチューニングで、会話の途中に複数の指定をランダムに入れて最後の指定に従わせたデータを使っている（[Qwen3 Technical Report](https://arxiv.org/abs/2505.09388) の4.3節）。
+
+### K・Vは大きく、メモリに置き続けられないので期限で捨てる
+
+問い: なぜキャッシュに有効期限があるのか
+
+プロンプトキャッシュのK・Vは、ディスクではなく推論マシンのメモリに置かれる（[Claude APIのドキュメント](https://platform.claude.com/docs/en/build-with-claude/prompt-caching#data-retention)に「held in memory only and are not stored at rest」とある）。Llama 3.1 405B の構成では約516KB/トークンなので、10万トークンのプロンプト1つで約50GBを占める。
+
+メモリには限りがあり、次に使われるか分からないK・Vを置き続けると、ほかのリクエストの分が入らなくなる。だから一定時間使われなかったものは捨てる。期限の理由は公式には書かれておらず、これは大きさからの推測。
+
+期限が切れても、K・Vが間違った値になるわけではない。重みが同じなら、同じprefixのK・Vは何度計算しても同じになる。実際、推論サーバーの [vLLM](https://docs.vllm.ai/en/latest/design/prefix_caching/) には時間の期限がなく、メモリが足りなくなったときに、最後に使われてから最も時間が経ったものから捨てるだけ。APIの期限は「少なくともこの時間は捨てない」という約束で、Claude APIのドキュメントも「minimum lifetime of 5 minutes」と書いている。
+
+### K・Vは1台のマシンのメモリにあるので、同じprefixのリクエストもそのマシンに届かないと使い回せない
+
+問い: 同じprefixなら別のリクエストでも使い回せるのか
+
+使い回せる。K・Vはprefixだけで決まるので、別のリクエストでも同じ値になる。ただし次のリクエストは、そのK・Vを持っているマシンに届く必要がある。[OpenAIのドキュメント](https://developers.openai.com/api/docs/guides/prompt-caching)は「Cached states live on individual machines」と書き、先頭のトークンのハッシュとマシンの負荷で届け先を決めているとしている。
+
+使う側で気を付けるのは同時に投げるとき。1本目の応答が始まるまでK・Vはまだ保存されていないので、同じprefixのリクエストを同時に投げると2本目以降はキャッシュに当たらない（[Claude APIのドキュメント](https://platform.claude.com/docs/en/build-with-claude/prompt-caching#cache-limitations)に「a cache entry only becomes available after the first response begins」とある）。
