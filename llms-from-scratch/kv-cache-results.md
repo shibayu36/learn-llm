@@ -65,3 +65,15 @@ Llama 3.1 405B は、K・Vを8ヘッド分だけ持つGQAとBF16の推論で減�
 `generate_with_kv_cache` の1回目はprompt全体をモデルに通してK・Vを作り、2回目からはその上に1文字ずつ足す。プロンプトキャッシュはこの1回目の結果を保存して、次のリクエストで使い回すもの。システムプロンプトやツール定義のように毎回同じ先頭部分があれば、そのK・Vを作り直さずに済む。
 
 使い回せるのは、あるトークンのK・Vが自分より前のトークンだけで決まるから（Causal mask）。「日本の首都は」までを入れて計算した「は」のK・Vは、続きが「東京」でも「大阪」でも同じ。逆に先頭側が1文字でも違えば、そこから後ろのK・Vはすべて別物になる。プロンプトキャッシュが「先頭からの完全一致」でしか効かないのはこのため。
+
+### effortはプロンプトの一部としてモデルに入るので、変えるとそこから後ろのK・Vが別物になる
+
+問い: なぜeffortを変えるとキャッシュが壊れるのか
+
+[Claude APIのドキュメント](https://platform.claude.com/docs/en/build-with-claude/thinking-steering-and-cost#prompt-caching)に「The resolved effort value is rendered into the prompt」とあるとおり、effortの値はプロンプトの中に書き込まれてモデルに入力される。effortを変えたリクエストは、モデルにとっては途中が違う別のプロンプトになる。そこから後ろのK・Vはすべて別物になるので、保存してあったK・Vは使えない。
+
+どこまで壊れるかはeffortが書き込まれる位置で決まる。プロンプトはツール定義・システムプロンプト・会話の順に並ぶ。会話のキャッシュは必ず壊れる。ツール定義とシステムプロンプトのキャッシュは、それらより前にeffortを書き込むモデルでだけ壊れる。どのモデルがどの位置にどんな形で書き込むかは公開されていない。
+
+壊さずにeffortを変える方法もある。対応しているモデルには、「ここからeffortをlowにする」という設定変更を会話の末尾に足す [per-message effort](https://platform.claude.com/docs/en/build-with-claude/effort#per-message-effort-beta) がある。あるトークンのK・Vは自分より前のトークンだけで決まるので、末尾に何を足してもそれより前のK・Vはそのまま使える。キャッシュが壊れる原因はeffortそのものではなく、保存済みの部分より前の入力が変わることにある。
+
+effortの指定が入力に入るだけで振る舞いが変わるのは、そう学習させているから。[Anthropicのブログ](https://www.claude.com/blog/claude-model-and-effort-level-in-claude-code)は「The model was trained to understand how to behave at each effort level」と説明している。会話の途中で切り替えるには、さらに「最後に出てきた指定に従う」ことも学習させる必要がある。Claudeがどう学習させているかは公開されていないが、Qwen3は公開している。Qwen3はユーザーメッセージに `/think`・`/no_think` と書くとターンごとにthinkingの有無を切り替えられる。事前学習のあとのファインチューニングで、会話の途中に複数の指定をランダムに入れて最後の指定に従わせたデータを使っている（[Qwen3 Technical Report](https://arxiv.org/abs/2505.09388) の4.3節）。
