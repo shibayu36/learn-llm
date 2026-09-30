@@ -4,7 +4,7 @@
 
 ## 現在の作業
 
-Stage 7「KVキャッシュ」を進めている（2026-09-29に開始。計画は `kv-cache-plan.md`）。段階1の生成時間の表示まで完了。次は段階2の `kv_cache.py`（`HeadKVCache`・`KVCache`）と `CausalAttention.forward(x, cache=None)`。
+Stage 7「KVキャッシュ」を進めている（2026-09-29に開始。計画は `kv-cache-plan.md`）。段階4の `generate --kv-cache` まで完了。次は段階5の `kv-cache-results.md` の残り、ku-nlpのキャッシュの大きさと3つの問いへの考察（生成時間の比較は記録済み）。
 
 Stage 6「学習済みモデルの読み込み」の作業項目はすべて完了（2026-09-29）。ku-nlpの日本語1文字GPT-2 smallを `JpCharGPT2` に読み込み、評価を `evaluation-results.md` の「学習済みモデル」、可視化3種の観察を `visualization-results.md` の「学習済みモデル」に記録した。
 
@@ -114,10 +114,10 @@ Stage 5（Multi-head Attention）は、4層・128次元で1ヘッド（`l4h1-d12
 `generate` にKVキャッシュを足し、生成が速くなることと結果が変わらないことを確かめる。設計と決めたことは `kv-cache-plan.md`。
 
 - [x] `main.py generate` に生成時間と1文字あたりの時間を出す。`l4h4-d128-s5000-lr1e-3` は100文字 0.22秒（2.2ms/文字）、`ku-nlp-gpt2-small-char` は3.95秒（39.5ms/文字）。CPU、キャッシュなし（2026-09-29）
-- [ ] `kv_cache.py`（`HeadKVCache`・`KVCache`）と `CausalAttention.forward(x, cache=None)`。1ヘッド単体で一括と1文字ずつの出力が一致すること、`evaluate --run-name l4h4-d128-s5000-lr1e-3` の全バッチloss 3.094512 が変わらないこと
-- [ ] `MultiHeadAttention`・`TransformerBlock`・`GPT`・`JpCharGPT2` の配線。`l4h4-d128-s5000-lr1e-3` とku-nlpで一括と1文字ずつの末尾logitsが一致すること
-- [ ] `generate` の `use_kv_cache` と `main.py generate --kv-cache`。固定10promptのgreedy 100文字が有無で一致、同seedのsamplingの一致、上限超えの例外、`visualize-attention` が変わらないこと
-- [ ] `kv-cache-results.md`：2モデルの100文字の生成時間の比較、ku-nlpのキャッシュの大きさ、プロンプトキャッシュ・effort・有効期限の3つの問いへの考察
+- [x] `kv_cache.py`（`HeadKVCache`・`KVCache`）と `CausalAttentionWithKVCache.forward(x, cache)`。ku-nlpの第1層ヘッド0で「日本の首都は」を空のキャッシュに一括で通した出力は元の `CausalAttention.forward` と完全一致（差0）、1文字ずつ通した出力との最大差 4.2e-07（float32の丸め誤差の範囲）。理解用の `CausalAttention`・`MultiHeadAttention`・`TransformerBlock` は変えていないので、`GPT` の `l4h4-d128-s5000-lr1e-3` は `evaluate` の全バッチloss 3.094512 も `visualize-attention` の出力も変わらず（2026-09-29）
+- [x] `MultiHeadAttentionWithKVCache`・`TransformerBlockWithKVCache`・`JpCharGPT2` の配線。ku-nlpで「日本の首都は」の末尾logitsは一括と1文字ずつで最大差 1.2e-05（12層分の丸め誤差）、argmaxは同じ「、」。ku-nlpの `evaluate` の全バッチloss 1.706350 と生成サンプル20件は変わらず（2026-09-29）
+- [x] `generate_with_kv_cache` と `main.py generate --kv-cache`。ku-nlpの固定10promptのgreedy 100文字は `generate` とtoken列が完全一致、ID04のsampling（T=0.8、seed 42〜44）も同seedで一致。prompt + `max_new_tokens` が `context_length` を超えると `ValueError`、`GPT` に使うと `TypeError`。`visualize-attention` の `attention_weights.json` は `l4h4-d128-s5000-lr1e-3` で変更前と同一（2026-09-29）
+- [ ] `kv-cache-results.md`：ku-nlpの生成時間の比較、ku-nlpのキャッシュの大きさ、プロンプトキャッシュ・effort・有効期限の3つの問いへの考察。生成時間は100・200・300文字で記録済み（キャッシュなしは 35.9 → 56.7ms/文字と伸び、ありは約15ms/文字で一定。倍率 2.4 → 3.7倍、2026-09-29）。大きさと考察は未着手
 - [ ] `progress.md`・`docs/glossary.md`・解説HTML `docs/demos/KVキャッシュで生成が速くなる理由.html` の「今の実装」を実装後に合わせる
 
 ## 実行して分かったこと
